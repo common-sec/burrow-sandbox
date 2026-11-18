@@ -31,8 +31,9 @@ const (
 	labelKind     = "burrow.kind"
 )
 
-// Hardening applied to everything burrow starts (SB2).
-var hardening = []string{"--cap-drop", "ALL", "--security-opt", "no-new-privileges"}
+// Hardening applied to everything burrow starts (SB2). --http-proxy=false: podman otherwise copies
+// the host's proxy variables (and any credentials in them) into every container.
+var hardening = []string{"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--http-proxy=false"}
 
 // Manager runs environments.
 type Manager struct {

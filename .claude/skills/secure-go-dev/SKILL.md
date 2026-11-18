@@ -25,6 +25,7 @@ data leak, so these rules are not style preferences.
   could change the argument's meaning: commas, colons and quotes in paths for `-v`, leading `-`
   in names, newlines anywhere.
 - Secure defaults on every container: `--cap-drop ALL`, `--security-opt no-new-privileges`,
+  `--http-proxy=false` (else podman copies the host's proxy variables in),
   non-root `--user`, `--pids-limit`; `--read-only` unless the container must write its root
   filesystem. Never `--privileged`, never `--network host`, never a Podman or Docker socket mount.
   A change that relaxes one of these needs an exception (owner, reason, expiry) in a decision.

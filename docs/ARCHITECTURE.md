@@ -24,7 +24,8 @@ For an environment `dev`:
 
 ## Defaults on every container
 
-`--cap-drop ALL`, `--security-opt no-new-privileges`, a non-root user (`RUN_AS`, never uid 0),
+`--cap-drop ALL`, `--security-opt no-new-privileges`, `--http-proxy=false` (podman otherwise copies
+the host's proxy variables, credentials included, into the container), a non-root user (`RUN_AS`, never uid 0),
 `--pids-limit`. Proxy, forwarder and presets also get `--read-only` and a memory limit. The
 sandbox maps the host user to its own uid (`--userns keep-id`) so workspace files keep their owner;
 presets that mount the workspace do the same with their own uid. Images must be pinned by digest

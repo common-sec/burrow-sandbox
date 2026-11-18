@@ -67,6 +67,7 @@ func TestUpLayout(t *testing.T) {
 		{"--cap-drop", "ALL"},
 		{"--security-opt", "no-new-privileges"},
 		{"--userns", "keep-id:uid=1000,gid=1000"},
+		{"--http-proxy=false"}, // the host's proxy settings must not leak in
 		{"-e", "HTTPS_PROXY=http://10.89.0.2:3128"},
 	} {
 		if !has(sb, want...) {
