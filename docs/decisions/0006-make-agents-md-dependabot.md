@@ -53,7 +53,7 @@ cooldown option is only available for version updates, not security updates") an
 - Security update PRs need "Dependabot security updates" switched on in the repository settings
   (or as an organisation default); `dependabot.yml` cannot switch it on.
 - `.github/CODEOWNERS` assigns `@common-sec/security` to every file that pins third-party code.
-  The team name is *unverified*: it was not visible with the access used to write this; it must
-  exist and have write access, or GitHub ignores the line.
+  J is creating the team (PR #1); it must have write access, or GitHub ignores the lines.
+  J is also switching on Dependabot security updates in the repository settings.
 - Still not covered: `mise.toml`, built-in presets, `scripts/install-mise.sh` (manual, reviewed by
   the security team). Renovate covers mise; a decision if the manual work grows.

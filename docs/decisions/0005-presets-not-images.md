@@ -57,8 +57,7 @@ pick "trivy-scan", not an image and twelve flags (O7).
 
 ## Consequences and gaps
 
-- `shell` is a new verb. J's notes did not name the old "command inside the sandbox"; `shell` is
-  a proposal (other names: `attach`, `sh`).
+- `shell` is a new verb for the old "command inside the sandbox"; J confirmed the name on PR #1.
 - Only workspace and proxy are inherited for now. Caches, memory and engine are not; J named
   "fs mounts" and "proxy settings" as the first two.
 - A sandbox's `NETWORK` must be `proxy` (the default): a sandbox always has its own proxy, and an
