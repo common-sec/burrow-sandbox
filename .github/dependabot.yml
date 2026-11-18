@@ -1,16 +1,33 @@
-# Dependabot keeps pinned dependencies current with a 7-day minimum age (cooldown), the same as
-# mise's minimum_release_age: a new release is only proposed once it has been public for a week.
-# Security updates are not delayed by the cooldown.
-# Not covered by Dependabot: the tools in mise.toml (see docs/DEVELOPMENT.md, "Updating pins").
+# Dependabot keeps pinned dependencies current (D1). Checked every day.
+# - Version updates wait for a 7-day cooldown, the same as mise's minimum_release_age: a release
+#   is only proposed once it has been public for a week. Security updates skip the cooldown.
+# - Minor and patch updates come as ONE grouped PR per ecosystem; majors one PR each, to review.
+# - Security updates come grouped per ecosystem too. They need "Dependabot security updates"
+#   switched on in the repository (Settings > Advanced Security); this file only shapes the PRs.
+# - Review: the security team, through .github/CODEOWNERS (Dependabot's `reviewers` option was
+#   removed in May 2025 in favour of code owners).
+# - One PR across ecosystems (multi-ecosystem-groups) is not used: as documented it cannot be
+#   limited to minor and patch, so majors would hide inside it (docs/decisions/0006).
+# Not covered by Dependabot: mise.toml, the built-in presets (presets/*.preset) and
+# scripts/install-mise.sh (see docs/DEVELOPMENT.md, "Updating pins").
 version: 2
 
 updates:
+  # Go modules (go.sum).
   - package-ecosystem: gomod
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     commit-message:
       prefix: "deps(go)"
 
@@ -18,9 +35,17 @@ updates:
   - package-ecosystem: docker
     directories: ["/packaging/proxy", "/packaging/forward"]
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     commit-message:
       prefix: "deps(docker)"
 
@@ -28,9 +53,17 @@ updates:
   - package-ecosystem: docker-compose
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     commit-message:
       prefix: "deps(compose)"
 
@@ -38,8 +71,16 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     commit-message:
       prefix: "deps(actions)"

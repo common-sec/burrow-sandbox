@@ -34,7 +34,7 @@ keeps it simple to use.
  │   │ /work (rw)   │        └──────────────┘                              │
  │   └──────────────┘                                                      │
  │                                                                         │
- │  per preset run: its own internal network + its own proxy (or none)     │
+ │  per tool (burrow exec): its own internal network + its own proxy       │
  │   ┌──────────────┐        ┌──────────────┐                              │
  │   │ trivy        │──────► │ proxy        │──► mirror.gcr.io only        │
  │   │ /work (ro)   │        └──────────────┘                              │
@@ -46,22 +46,34 @@ Details and the threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Try it
 
-You need Podman 4.9 or newer (on Windows and macOS: a Podman machine) and [mise](https://mise.jdx.dev).
+You need Podman 4.9 or newer (on Windows and macOS: a Podman machine), `make` and
+[mise](https://mise.jdx.dev).
+
+burrow runs **presets**, not images: a preset is a pinned image plus the settings it is safe to
+run with. Some are built in (`burrow presets`); yours go in your presets folder.
 
 ```sh
-mise install                 # Go and the linters, exact versions from mise.lock
-mise run images              # builds localhost/burrow-proxy:dev and localhost/burrow-forward:dev
-go build -o burrow ./cmd/burrow
+make tools images            # Go and linters from mise.lock; localhost/burrow-proxy:dev and -forward:dev
+mise exec -- go build -o burrow ./cmd/burrow
 
-./burrow up examples/envs/dev.env          # internal network, proxy, sandbox
-./burrow exec dev -- curl -sI https://pypi.org/simple/      # allowed
-./burrow exec dev -- curl -sI https://example.com/          # 403 from the proxy
-./burrow run dev examples/presets/trivy-db.preset           # tool preset, own proxy
-./burrow run dev examples/presets/trivy-scan.preset         # no network, workspace read-only
+# A sandbox defined by a file, like compose (./burrow.sandbox, or -f):
+./burrow up -f examples/burrow.sandbox                      # internal network, proxy, sandbox "dev"
+./burrow shell dev -- curl -sI https://pypi.org/simple/     # allowed
+./burrow shell dev -- curl -sI https://example.com/         # 403 from the proxy
+./burrow exec -s dev trivy-db                               # a tool next to it: own proxy, DB mirror only
+./burrow exec -s dev trivy-scan                             # no network, workspace read-only
 ./burrow port dev 8080                                      # publish a port after start
 ./burrow down dev                                           # keeps the home volume; --purge removes it
-./burrow --dry-run up examples/envs/dev.env                 # print the podman commands only
+
+# An ad-hoc sandbox from a preset, on the current folder:
+./burrow run alpine --name scratch && ./burrow shell scratch
+
+./burrow --dry-run run alpine                               # print the podman commands only
 ```
+
+Tools inherit from their sandbox where the preset says `inherit` (workspace mode, allowlist
+through their own proxy), never more than the sandbox has. Keys:
+[docs/DEFINITIONS.md](docs/DEFINITIONS.md).
 
 Windows: [docs/WINDOWS.md](docs/WINDOWS.md).
 
@@ -74,7 +86,10 @@ Windows: [docs/WINDOWS.md](docs/WINDOWS.md).
 | `cmd/burrow-forward` | port forwarder for running sandboxes |
 | `internal/` | shared packages: `config`, `podman`, `sandbox`, `proxy`, `forward` |
 | `packaging/<product>/` | how each product is packaged (container images now; releases later) |
-| `examples/` | environment and preset definitions |
+| `presets/` | presets built into the binary |
+| `examples/` | an example sandbox file |
+| `Makefile` | every command, locally and in CI (`make help`) |
+| `AGENTS.md` | instructions for coding agents and people (`CLAUDE.md` points to it) |
 | `docs/` | [roadmap](docs/ROADMAP.md), [architecture](docs/ARCHITECTURE.md), [development](docs/DEVELOPMENT.md), [definitions](docs/DEFINITIONS.md), [testing](docs/TESTING.md), [decisions](docs/decisions/) |
 
 ## Security practices
@@ -82,9 +97,11 @@ Windows: [docs/WINDOWS.md](docs/WINDOWS.md).
 - **Everything pinned:** tools in `mise.toml` + `mise.lock` (checksums), images by digest, Actions
   by commit SHA, Go modules by `go.sum`. New versions only after a **7-day cooldown** (mise
   `minimum_release_age`, Dependabot `cooldown`).
-- **Local first:** `mise run check` (lint, tests, govulncheck, build) and `mise run scan`
-  (TruffleHog, Semgrep, Trivy in locked-down containers) are what CI runs. `mise run hooks:install`
-  runs them before every push.
+- **Local first:** `make check` (lint, tests, govulncheck, build) and `make scan`
+  (TruffleHog, Semgrep, Trivy in locked-down containers) are what CI runs. `make hooks` runs them
+  before every push.
+- **Dependabot** every day: minor and patch grouped, security updates grouped, reviewed by the
+  security team (CODEOWNERS).
 - **No third-party Actions** besides GitHub's checkout; mise is installed from a checksum-verified
   release.
 - Reporting vulnerabilities: [SECURITY.md](SECURITY.md).

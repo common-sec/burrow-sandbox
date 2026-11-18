@@ -1,9 +1,9 @@
-# Trivy scan of the environment's workspace: no network, workspace read-only, the shared cache as
+# Trivy scan of the sandbox's workspace (or, without a sandbox, the current folder): no network, workspace read-only, the shared cache as
 # an overlay (Trivy may write to it; the writes are thrown away with the container).
-#   burrow run dev examples/presets/trivy-scan.preset
+#   burrow exec trivy-scan  (in a folder with a burrow.sandbox, or -s NAME)
 NAME=trivy-scan
 IMAGE=docker.io/aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
-WORKSPACE=ro
+WORKSPACE_MODE=ro
 NETWORK=none
 CACHE=trivy:/cache:O
 ARGS=fs --cache-dir /cache --skip-db-update --skip-java-db-update --skip-check-update --offline-scan --scanners vuln --skip-version-check --disable-telemetry --quiet /work

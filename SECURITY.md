@@ -13,7 +13,9 @@ burrow is a **prototype**. In scope already:
 - a way for code in a sandbox or preset to reach a host or address its allowlist does not allow;
 - a way for a sandbox to start containers, reach the Podman socket, gain capabilities or become
   root on the host;
-- a preset getting more access than its definition (wider mounts, the sandbox's network);
+- a tool (preset run with `exec`) getting more access than its definition or than its sandbox
+  (wider mounts, a wider allowlist, the sandbox's network);
+- an agent in a sandbox changing what its next sandbox or tool may do (definition files, presets);
 - injection through definition files or names into podman arguments.
 
 Known gaps, out of scope until the roadmap closes them: the proxy stand-in does not inspect TLS

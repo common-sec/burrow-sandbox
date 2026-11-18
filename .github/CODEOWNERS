@@ -1,0 +1,12 @@
+# Everything that pins or fetches third-party code is reviewed by the security team, so they are
+# asked to review every Dependabot PR and every pin change. Team name to be confirmed: it must exist
+# in the common-sec organisation and have write access to this repository.
+go.mod                    @common-sec/security
+go.sum                    @common-sec/security
+mise.toml                 @common-sec/security
+mise.lock                 @common-sec/security
+compose.yaml              @common-sec/security
+/packaging/               @common-sec/security
+/presets/                 @common-sec/security
+/scripts/install-mise.sh  @common-sec/security
+/.github/                 @common-sec/security

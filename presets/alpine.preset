@@ -1,0 +1,8 @@
+# A minimal persistent sandbox: Alpine with a shell, the workspace read-write, network only
+# through its own proxy, and nothing allowed until you allow it.
+#   burrow run alpine [--name NAME] [--workspace DIR]     then: burrow shell NAME
+# Or as the base of a sandbox file: PRESET=alpine, then ALLOW=... in burrow.sandbox.
+NAME=alpine
+IMAGE=docker.io/library/alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
+WORKSPACE_MODE=rw
+NETWORK=proxy

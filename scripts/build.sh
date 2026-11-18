@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static, reproducible binaries for every product and platform into dist/ (run by `mise run build`).
+# Static, reproducible binaries for every product and platform into dist/ (run by `make build`).
 # CGO_ENABLED=0 and -trimpath come from mise.toml; -buildid= and the commit date make the output
 # depend only on the source.
 set -eu

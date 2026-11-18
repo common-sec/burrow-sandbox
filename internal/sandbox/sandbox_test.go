@@ -84,9 +84,9 @@ func TestUpLayout(t *testing.T) {
 	}
 }
 
-func TestExecKrunFallsBackToOneShotVM(t *testing.T) {
+func TestShellKrunFallsBackToOneShotVM(t *testing.T) {
 	m, rec := setup(t, config.EngineKrun)
-	if err := m.Exec(context.Background(), "dev", []string{"id"}); err != nil {
+	if err := m.Shell(context.Background(), "dev", []string{"id"}); err != nil {
 		t.Fatal(err)
 	}
 	last := rec.Calls[len(rec.Calls)-1]
@@ -95,7 +95,7 @@ func TestExecKrunFallsBackToOneShotVM(t *testing.T) {
 	}
 }
 
-func TestRunPresetNoNetwork(t *testing.T) {
+func TestExecPresetNoNetwork(t *testing.T) {
 	m, rec := setup(t, config.EngineCrun)
 	p := &config.Preset{
 		Name: "scan", Image: pinned, Args: []string{"fs", "/work"}, WorkspaceMode: config.WorkspaceRO,
@@ -103,7 +103,7 @@ func TestRunPresetNoNetwork(t *testing.T) {
 		Cache: &config.Cache{Volume: "trivy", Path: "/cache", Mode: "O"},
 	}
 	n := len(rec.Calls)
-	if err := m.Run(context.Background(), "dev", p, []string{"--quiet"}); err != nil {
+	if err := m.Exec(context.Background(), "dev", "", p, []string{"--quiet"}); err != nil {
 		t.Fatal(err)
 	}
 	run := rec.Calls[n]
@@ -113,14 +113,14 @@ func TestRunPresetNoNetwork(t *testing.T) {
 	}
 }
 
-func TestRunPresetOwnProxyAndCleanup(t *testing.T) {
+func TestExecPresetOwnProxyAndCleanup(t *testing.T) {
 	m, rec := setup(t, config.EngineCrun)
 	p := &config.Preset{
 		Name: "db", Image: pinned, WorkspaceMode: config.WorkspaceNone, Network: config.NetworkProxy,
 		Allow: []string{"mirror.gcr.io"}, Engine: config.EngineCrun, RunAs: "65532:65532",
 	}
 	n := len(rec.Calls)
-	if err := m.Run(context.Background(), "dev", p, nil); err != nil {
+	if err := m.Exec(context.Background(), "dev", "", p, nil); err != nil {
 		t.Fatal(err)
 	}
 	calls := rec.Calls[n:]
@@ -133,7 +133,7 @@ func TestRunPresetOwnProxyAndCleanup(t *testing.T) {
 	}
 }
 
-func TestRunPresetCannotWidenWorkspace(t *testing.T) {
+func TestExecPresetCannotWidenWorkspace(t *testing.T) {
 	m, _ := setup(t, config.EngineCrun)
 	e, _ := m.loadEnv("dev")
 	e.WorkspaceMode = config.WorkspaceRO
@@ -144,7 +144,7 @@ func TestRunPresetCannotWidenWorkspace(t *testing.T) {
 		Name: "fmt", Image: pinned, WorkspaceMode: config.WorkspaceRW, Network: config.NetworkNone,
 		Engine: config.EngineCrun, RunAs: "65532:65532",
 	}
-	if err := m.Run(context.Background(), "dev", p, nil); err == nil {
+	if err := m.Exec(context.Background(), "dev", "", p, nil); err == nil {
 		t.Fatal("rw preset on a ro environment: want error")
 	}
 }
@@ -166,5 +166,81 @@ func TestPortAndDown(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(m.StateDir, "dev.env")); !os.IsNotExist(err) {
 		t.Fatal("purge kept the definition")
+	}
+}
+
+func TestExecInheritsFromSandbox(t *testing.T) {
+	m, rec := setup(t, config.EngineCrun)
+	e, _ := m.loadEnv("dev")
+	p := &config.Preset{
+		Name: "fmt", Image: pinned, WorkspaceMode: config.WorkspaceInherit, Network: config.NetworkInherit,
+		Engine: config.EngineCrun, RunAs: "65532:65532",
+	}
+	n := len(rec.Calls)
+	if err := m.Exec(context.Background(), "dev", "/ignored", p, nil); err != nil {
+		t.Fatal(err)
+	}
+	calls := rec.Calls[n:]
+	// Its own proxy with the sandbox's allowlist, on its own network: never the sandbox's.
+	if !has(calls[1], "-allow", "pypi.org") {
+		t.Fatalf("inherited allowlist: %v", calls[1])
+	}
+	var run []string
+	for _, c := range calls {
+		if has(c, "run", "--rm") {
+			run = c
+		}
+	}
+	if has(run, "--network", "burrow-dev") || !has(run, "-v", e.Workspace+":/work:rw") {
+		t.Fatalf("inherit: %v", run)
+	}
+}
+
+func TestExecWithoutSandbox(t *testing.T) {
+	rec := &podman.Recorder{Replies: map[string]string{"inspect": "10.89.0.2"}}
+	m := &Manager{Podman: rec, StateDir: t.TempDir()}
+	ws := t.TempDir()
+	p := &config.Preset{
+		Name: "fmt", Image: pinned, WorkspaceMode: config.WorkspaceInherit, Network: config.NetworkInherit,
+		Engine: config.EngineCrun, RunAs: "65532:65532",
+	}
+	if err := m.Exec(context.Background(), "", ws, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	run := rec.Calls[0]
+	// inherit without a sandbox is the narrowest setting: read-only, no network.
+	if !has(run, "--network", "none") || !has(run, "-v", ws+":/work:ro") || slices.Contains(run, "--label=burrow.env=") {
+		t.Fatalf("standalone: %v", run)
+	}
+	if err := m.Exec(context.Background(), "", ws+"/a,b", p, nil); err == nil {
+		t.Fatal("comma in workspace: want error")
+	}
+}
+
+func TestDefinitionReadOnlyInsideWorkspace(t *testing.T) {
+	rec := &podman.Recorder{Replies: map[string]string{"inspect": "10.89.0.2"}}
+	m := &Manager{Podman: rec, StateDir: t.TempDir()}
+	ws := t.TempDir()
+	def := filepath.Join(ws, "burrow.sandbox")
+	e := &config.Env{
+		Name: "dev", Image: pinned, Workspace: ws, WorkspaceMode: config.WorkspaceRW, Engine: config.EngineCrun,
+		RunAs: "1000:1000", ProxyImage: config.DefaultProxyImage, ForwardImage: config.DefaultForwardImage,
+		Definition: def,
+	}
+	if err := m.Up(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	sb := find(rec, "run", "-d", "--name", "burrow-dev")
+	if !has(sb, "-v", def+":/work/burrow.sandbox:ro") {
+		t.Fatalf("definition not read-only: %v", sb)
+	}
+}
+
+func TestUpRefusesRunningSandbox(t *testing.T) {
+	m, rec := setup(t, config.EngineCrun)
+	rec.Replies["ps -a -q"] = "abc123"
+	e, _ := m.loadEnv("dev")
+	if err := m.Up(context.Background(), e); err == nil {
+		t.Fatal("second up of a running sandbox: want error")
 	}
 }

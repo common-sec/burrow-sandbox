@@ -11,15 +11,18 @@ Legend: ✓ done · ◐ partly · ○ not started
 
 | | Item | Serves |
 |---|---|---|
-| ✓ | `burrow up/exec/down/ls`: persistent sandbox on rootless Podman, internal network, keep-id user, no capabilities, home volume kept across down/up | R1, SB2, W1 |
+| ✓ | `burrow up` (sandbox file, like compose) and `burrow run PRESET` (ad hoc): persistent sandbox on rootless Podman, internal network, keep-id user, no capabilities, home volume kept across down/up; `shell`, `down`, `ls` | R1, SB2, W1 |
+| ✓ | Presets, not images: built-in presets in the binary, user presets folder, `--image` / file / preset precedence ([0005](decisions/0005-presets-not-images.md)) | O7, R8 |
+| ✓ | Sandbox file mounted read-only inside the sandbox, so the agent cannot widen it | SB2 |
 | ✓ | One proxy per sandbox and per preset run; the proxy is the only exit | SB3, R7 |
-| ✓ | `burrow run`: presets as ephemeral siblings (own user, workspace none/ro/rw, own proxy or no network, shared cache volume, overlay cache) | R3, SB7, W2 |
+| ✓ | `burrow exec PRESET`: tools as ephemeral siblings (own user, workspace none/ro/rw/inherit capped by the sandbox, own proxy with own or inherited allowlist, or no network, shared cache volume, overlay cache); also without a sandbox | R3, SB7, W2 |
+| ○ | Inherit more than workspace and proxy (caches, extra mounts, memory) | W2 |
 | ✓ | `burrow port`: publish a port of a running sandbox through a forwarder container (Go binary) | R9 |
-| ✓ | Engine per environment or preset: crun default, krun experimental (exec falls back to a one-shot VM) | R11, W3 |
+| ✓ | Engine per sandbox or preset: crun default, krun experimental (`shell` falls back to a one-shot VM) | R11, W3 |
 | ✓ | `--dry-run` prints every podman command | SB5 (reviewable), O7 |
 | ✓ | Test stand-in proxy in Go (CONNECT, host allowlist, ports, no IP literals, no private addresses, JSON audit log) | R7 (stand-in) |
 | ✓ | End-to-end checks on real rootless Podman, blocked checks only pass when the command ran | R12 |
-| ✓ | Base repository: pins, lockfile, cooldown, local-first checks and scans, CI, Claude skills | D1, D2, D5 |
+| ✓ | Base repository: pins, lockfile, cooldown, local-first checks and scans through a Makefile, CI, daily grouped Dependabot reviewed by the security team, AGENTS.md | D1, D2, D5 |
 | ○ | Tested on Windows with the WSL backend and the Hyper-V backend; differences written down | R2, E1, D6 |
 
 ## 0.2 Platforms

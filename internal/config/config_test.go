@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 const pinned = "docker.io/library/alpine:3.22@sha256:" + "49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
@@ -78,5 +79,70 @@ func TestLoadPreset(t *testing.T) {
 	}
 	if _, err := LoadPreset(write(t, "NAME=x1\nIMAGE="+pinned+"\nCACHE=../x:/c:rw\n")); err == nil {
 		t.Error("bad cache volume: want error")
+	}
+}
+
+func TestNewSandboxPrecedence(t *testing.T) {
+	p, err := ParsePreset(strings.NewReader("NAME=base\nIMAGE="+pinned+"\nWORKSPACE_MODE=rw\nNETWORK=proxy\nALLOW=pypi.org\nMEMORY=1g\n"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	file := map[string]string{"NAME": "dev", "PRESET": "base", "ALLOW": "proxy.golang.org", "WORKSPACE": "src"}
+	e, err := NewSandbox(p, file, dir, Overrides{Image: "localhost/mine:dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// preset < file < flags
+	if e.Name != "dev" || e.Image != "localhost/mine:dev" || strings.Join(e.Allow, ",") != "proxy.golang.org" ||
+		e.Memory != "1g" || e.Workspace != filepath.Join(dir, "src") || e.WorkspaceMode != WorkspaceRW {
+		t.Fatalf("%+v", e)
+	}
+	tool, _ := ParsePreset(strings.NewReader("NAME=t1\nIMAGE="+pinned+"\nARGS=x\n"), "test")
+	if _, err := NewSandbox(tool, nil, dir, Overrides{}); err == nil {
+		t.Error("tool preset as sandbox: want error")
+	}
+	if _, err := NewSandbox(nil, map[string]string{"NAME": "x1", "IMAGE": pinned, "NETWORK": "none"}, dir, Overrides{}); err == nil {
+		t.Error("sandbox with NETWORK=none: want error")
+	}
+}
+
+func TestPresetInheritAndDefaults(t *testing.T) {
+	p, err := ParsePreset(strings.NewReader("NAME=t1\nIMAGE="+pinned+"\n"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.WorkspaceMode != WorkspaceRO || p.Network != NetworkNone {
+		t.Fatalf("defaults must be the narrowest: %+v", p)
+	}
+	if _, err := ParsePreset(strings.NewReader("NAME=t1\nIMAGE="+pinned+"\nNETWORK=inherit\nALLOW=x.org\n"), "test"); err == nil {
+		t.Error("ALLOW with NETWORK=inherit: want error")
+	}
+	if _, err := ParsePreset(strings.NewReader("NAME=t1\nIMAGE="+pinned+"\nWORKSPACE=ro\n"), "test"); err == nil {
+		t.Error("old WORKSPACE key in a preset: want error")
+	}
+}
+
+func TestFindPreset(t *testing.T) {
+	builtin := fstest.MapFS{"base.preset": {Data: []byte("NAME=base\nIMAGE=" + pinned + "\n")}}
+	user := t.TempDir()
+	if p, err := FindPreset("base", user, builtin); err != nil || p.Source != "built-in" {
+		t.Fatalf("built-in: %v %v", p, err)
+	}
+	mine := filepath.Join(user, "base.preset")
+	if err := os.WriteFile(mine, []byte("NAME=base\nIMAGE=localhost/x:1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := FindPreset("base", user, builtin); err != nil || p.Source != mine {
+		t.Fatalf("user preset should hide the built-in: %v %v", p, err)
+	}
+	if _, err := FindPreset("../etc", user, builtin); err == nil {
+		t.Error("path traversal as a name: want a file lookup error")
+	}
+	if _, err := FindPreset("Bad_Name", user, builtin); err == nil {
+		t.Error("bad name: want error")
+	}
+	if got := ListPresets(user, builtin); len(got) != 1 || got[0].Source != mine {
+		t.Fatalf("list: %v", got)
 	}
 }

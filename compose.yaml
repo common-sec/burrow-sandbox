@@ -1,6 +1,6 @@
 # Scanner images, pinned by tag (for humans and Dependabot) and multi-platform digest (what runs).
 # scripts/scan.sh reads the images from here and runs them with its own hardening, on podman or
-# docker: `mise run scan`. The services also work as-is with `podman compose` / `docker compose`.
+# docker: `make scan`. The services also work as-is with `podman compose` / `docker compose`.
 # All: non-root, no capabilities, read-only root filesystem, repository mounted read-only.
 x-hardening: &hardening
   read_only: true

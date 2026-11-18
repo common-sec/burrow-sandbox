@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,24 +17,43 @@ import (
 	"github.com/common-sec/burrow-sandbox/internal/config"
 	"github.com/common-sec/burrow-sandbox/internal/podman"
 	"github.com/common-sec/burrow-sandbox/internal/sandbox"
+	"github.com/common-sec/burrow-sandbox/presets"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
 var version = "dev"
 
+// SandboxFile is the sandbox file `up` (and the other commands, for the sandbox name) look for in
+// the current folder, like compose.yaml.
+const SandboxFile = "burrow.sandbox"
+
 const usage = `burrow: sandboxes for AI agents and their tools, on rootless Podman (prototype)
 
+burrow runs presets, not images: a preset is a pinned image plus the settings it runs with.
+Built-in presets ship with burrow; your own go in the presets folder (` + "`burrow presets`" + `).
+
 Usage:
-  burrow [flags] up ENV_FILE                 create an environment: internal network, proxy, sandbox
-  burrow [flags] exec NAME [-- CMD ARGS...]  run a command in the sandbox (default: sh)
-  burrow [flags] run NAME PRESET_FILE [-- ARGS...]
-                                             run a tool preset as an ephemeral sibling
-  burrow [flags] port NAME PORT [HOST_PORT]  publish a sandbox port on 127.0.0.1 after start
-  burrow [flags] down NAME [--purge]         remove the environment (--purge: also its home and definition)
-  burrow [flags] ls                          list environments
+  burrow up [-f FILE] [--image IMAGE]
+        start the persistent sandbox defined by a sandbox file (default ./` + SandboxFile + `)
+  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR]
+        start an ad-hoc persistent sandbox from a preset (workspace: current folder)
+  burrow exec [-s SANDBOX] [--workspace DIR] PRESET [-- ARGS...]
+        run a preset as a one-off tool next to the sandbox; it inherits the sandbox's workspace
+        and proxy where the preset says inherit, never more than the sandbox has. Without a
+        sandbox (-s, or a sandbox file here), it runs on its own (inherit: read-only, no network)
+  burrow shell [NAME] [-- CMD ARGS...]
+        run a command inside the sandbox (default: sh)
+  burrow port NAME PORT [HOST_PORT]
+        publish a sandbox port on 127.0.0.1 after start
+  burrow down [NAME] [--purge]
+        remove the sandbox (--purge: also its home volume and stored definition)
+  burrow ls        list sandboxes
+  burrow presets   list the presets burrow can find by name
   burrow version
 
-Flags:
+NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
+
+Global flags (before the command):
   --dry-run       print the podman commands instead of running them
   -v              print every podman command before running it
   --podman PATH   podman binary (default: podman from PATH)
@@ -72,67 +92,132 @@ func run(argv []string) error {
 	if *dry {
 		runner = &podman.Recorder{Out: os.Stdout, Replies: map[string]string{"inspect": "10.89.0.2"}}
 	}
-	state, err := stateDir()
+	state, err := configDir("BURROW_STATE_DIR", "envs")
+	if err != nil {
+		return err
+	}
+	userPresets, err := configDir("BURROW_PRESETS_DIR", "presets")
 	if err != nil {
 		return err
 	}
 	m := &sandbox.Manager{Podman: runner, StateDir: state, TTY: isTerminal(os.Stdin)}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	find := func(ref string) (*config.Preset, error) { return config.FindPreset(ref, userPresets, presets.FS) }
 
 	cmd, rest := args[0], args[1:]
+	sub := flag.NewFlagSet("burrow "+cmd, flag.ContinueOnError)
+	sub.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	switch cmd {
 	case "up":
-		if len(rest) != 1 {
-			return errors.New("usage: burrow up ENV_FILE")
+		file := sub.String("f", SandboxFile, "")
+		image := sub.String("image", "", "")
+		pos, _, err := parseArgs(sub, rest)
+		if err != nil || len(pos) != 0 {
+			return errors.New("usage: burrow up [-f FILE] [--image IMAGE]")
 		}
-		e, err := config.LoadEnv(rest[0])
+		keys, err := config.LoadSandboxFile(*file)
 		if err != nil {
 			return err
 		}
-		if err := m.Up(ctx, e); err != nil {
-			return err
+		var p *config.Preset
+		if ref := keys["PRESET"]; ref != "" {
+			if p, err = find(ref); err != nil {
+				return err
+			}
 		}
-		fmt.Fprintf(os.Stderr, "%s is up (engine %s). Next: burrow exec %s\n", e.Name, e.Engine, e.Name)
-		return nil
-	case "exec":
-		if len(rest) < 1 {
-			return errors.New("usage: burrow exec NAME [-- CMD ARGS...]")
+		e, err := config.NewSandbox(p, keys, filepath.Dir(*file), config.Overrides{Image: *image})
+		if err != nil {
+			return fmt.Errorf("%s: %w", *file, err)
 		}
-		return m.Exec(ctx, rest[0], afterDash(rest[1:]))
+		e.Definition = *file
+		return up(ctx, m, e)
 	case "run":
-		if len(rest) < 2 {
-			return errors.New("usage: burrow run NAME PRESET_FILE [-- ARGS...]")
+		name := sub.String("name", "", "")
+		image := sub.String("image", "", "")
+		ws := sub.String("workspace", "", "")
+		pos, _, err := parseArgs(sub, rest)
+		if err != nil || len(pos) != 1 {
+			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR]")
 		}
-		p, err := config.LoadPreset(rest[1])
+		p, err := find(pos[0])
 		if err != nil {
 			return err
 		}
-		return m.Run(ctx, rest[0], p, afterDash(rest[2:]))
+		dir, err := absOrCwd(*ws)
+		if err != nil {
+			return err
+		}
+		e, err := config.NewSandbox(p, nil, dir, config.Overrides{Name: *name, Image: *image, Workspace: dir})
+		if err != nil {
+			return err
+		}
+		return up(ctx, m, e)
+	case "exec":
+		name := sub.String("s", "", "")
+		ws := sub.String("workspace", "", "")
+		pos, after, err := parseArgs(sub, rest)
+		if err != nil || len(pos) != 1 {
+			return errors.New("usage: burrow exec [-s SANDBOX] [--workspace DIR] PRESET [-- ARGS...]")
+		}
+		if *name != "" && *ws != "" {
+			return errors.New("exec: --workspace is for a tool without a sandbox; a sandbox brings its own")
+		}
+		p, err := find(pos[0])
+		if err != nil {
+			return err
+		}
+		if *name == "" && *ws == "" {
+			if *name, err = nameFromFile(); err != nil {
+				return err
+			}
+		}
+		dir, err := absOrCwd(*ws)
+		if err != nil {
+			return err
+		}
+		return m.Exec(ctx, *name, dir, p, after)
+	case "shell":
+		pos, after, err := parseArgs(sub, rest)
+		if err != nil || len(pos) > 1 {
+			return errors.New("usage: burrow shell [NAME] [-- CMD ARGS...]")
+		}
+		name, err := nameArg(pos)
+		if err != nil {
+			return err
+		}
+		return m.Shell(ctx, name, after)
 	case "port":
-		if len(rest) < 2 || len(rest) > 3 {
+		pos, _, err := parseArgs(sub, rest)
+		if err != nil || len(pos) < 2 || len(pos) > 3 {
 			return errors.New("usage: burrow port NAME PORT [HOST_PORT]")
 		}
-		p, err := strconv.Atoi(rest[1])
+		p, err := strconv.Atoi(pos[1])
 		if err != nil {
 			return fmt.Errorf("PORT: %w", err)
 		}
 		hp := p
-		if len(rest) == 3 {
-			if hp, err = strconv.Atoi(rest[2]); err != nil {
+		if len(pos) == 3 {
+			if hp, err = strconv.Atoi(pos[2]); err != nil {
 				return fmt.Errorf("HOST_PORT: %w", err)
 			}
 		}
-		if err := m.Port(ctx, rest[0], p, hp); err != nil {
+		if err := m.Port(ctx, pos[0], p, hp); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "sandbox port %d is on http://127.0.0.1:%d\n", p, hp)
 		return nil
 	case "down":
-		if len(rest) < 1 || len(rest) > 2 || (len(rest) == 2 && rest[1] != "--purge") {
-			return errors.New("usage: burrow down NAME [--purge]")
+		purge := sub.Bool("purge", false, "")
+		pos, _, err := parseArgs(sub, rest)
+		if err != nil || len(pos) > 1 {
+			return errors.New("usage: burrow down [NAME] [--purge]")
 		}
-		return m.Down(ctx, rest[0], len(rest) == 2)
+		name, err := nameArg(pos)
+		if err != nil {
+			return err
+		}
+		return m.Down(ctx, name, *purge)
 	case "ls":
 		out, err := m.List(ctx)
 		if err != nil {
@@ -141,6 +226,12 @@ func run(argv []string) error {
 		if out != "" {
 			fmt.Println(out)
 		}
+		return nil
+	case "presets":
+		for _, p := range config.ListPresets(userPresets, presets.FS) {
+			fmt.Printf("%-24s %s\n", p.Name, p.Source)
+		}
+		fmt.Fprintf(os.Stderr, "(your presets folder: %s)\n", userPresets)
 		return nil
 	case "version":
 		fmt.Println("burrow", version)
@@ -151,24 +242,82 @@ func run(argv []string) error {
 	}
 }
 
-func afterDash(a []string) []string {
-	if len(a) > 0 && a[0] == "--" {
-		return a[1:]
+func up(ctx context.Context, m *sandbox.Manager, e *config.Env) error {
+	if err := m.Up(ctx, e); err != nil {
+		return err
 	}
-	return a
+	fmt.Fprintf(os.Stderr, "%s is up (engine %s). Next: burrow shell %s\n", e.Name, e.Engine, e.Name)
+	return nil
 }
 
-// stateDir holds stored environment definitions: ~/.config/burrow/envs on Linux,
-// %AppData%\burrow\envs on Windows, ~/Library/Application Support/burrow/envs on macOS.
-func stateDir() (string, error) {
-	if d := os.Getenv("BURROW_STATE_DIR"); d != "" {
+// parseArgs parses flags anywhere before "--" (Go's flag package stops at the first positional
+// argument) and returns the positional arguments and everything after "--".
+func parseArgs(fs *flag.FlagSet, args []string) (pos, after []string, err error) {
+	for i, a := range args {
+		if a == "--" {
+			args, after = args[:i], args[i+1:]
+			break
+		}
+	}
+	fs.SetOutput(io.Discard)
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, nil, err
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return pos, after, nil
+		}
+		pos, args = append(pos, args[0]), args[1:]
+	}
+}
+
+// nameArg is the sandbox name given, or the NAME in ./burrow.sandbox.
+func nameArg(pos []string) (string, error) {
+	if len(pos) == 1 {
+		return pos[0], nil
+	}
+	n, err := nameFromFile()
+	if err == nil && n == "" {
+		err = errors.New("no NAME given and no " + SandboxFile + " here")
+	}
+	return n, err
+}
+
+// nameFromFile returns the NAME in ./burrow.sandbox, or "" when there is no such file.
+func nameFromFile() (string, error) {
+	keys, err := config.LoadSandboxFile(SandboxFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if keys["NAME"] == "" {
+		return "", errors.New(SandboxFile + ": NAME is required")
+	}
+	return keys["NAME"], nil
+}
+
+func absOrCwd(dir string) (string, error) {
+	if dir == "" {
+		return os.Getwd()
+	}
+	return filepath.Abs(dir)
+}
+
+// configDir is a folder under burrow's configuration folder (~/.config/burrow on Linux,
+// %AppData%\burrow on Windows, ~/Library/Application Support/burrow on macOS), or the value of
+// the environment variable env. "envs" holds stored sandboxes, "presets" the user's presets.
+func configDir(env, sub string) (string, error) {
+	if d := os.Getenv(env); d != "" {
 		return d, nil
 	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "burrow", "envs"), nil
+	return filepath.Join(base, "burrow", sub), nil
 }
 
 func isTerminal(f *os.File) bool {

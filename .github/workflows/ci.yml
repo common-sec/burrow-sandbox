@@ -1,7 +1,7 @@
 name: CI
 
-# CI runs the same mise tasks a developer runs locally (local first). Nothing but GitHub's own
-# checkout action is used, pinned by commit SHA; mise is installed from a checksum-verified
+# CI runs the same Makefile targets a developer runs locally (local first). Nothing but GitHub's
+# own checkout action is used, pinned by commit SHA; mise is installed from a checksum-verified
 # release (scripts/install-mise.sh), and every tool from mise.lock.
 on:
   push:
@@ -25,13 +25,11 @@ jobs:
           persist-credentials: false
       - name: Install mise (pinned, checksum verified)
         run: sh scripts/install-mise.sh "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: mise.lock matches mise.toml
-        run: |
-          mise lock --platform linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64
-          git diff --exit-code mise.lock || { echo "::error::mise.lock is out of date; run 'mise lock' and commit it"; cat mise.lock; exit 1; }
+      - name: mise.lock is committed and matches mise.toml
+        run: make lock-check
       - name: Install tools from mise.lock
-        run: mise install
-      - run: mise run check
+        run: make tools
+      - run: make check
       - name: Checksums of this build
         run: cat dist/SHA256SUMS
 
@@ -48,8 +46,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0   # full history, so the secrets scan sees every commit
-      - name: ${{ matrix.scan }} (rootless podman, same script as `mise run scan`)
-        run: sh scripts/scan.sh ${{ matrix.scan }}
+      - name: ${{ matrix.scan }} (rootless podman, same target as `make scan`)
+        run: make scan-${{ matrix.scan }}
 
   e2e:
     name: end-to-end on rootless Podman
@@ -61,6 +59,6 @@ jobs:
           persist-credentials: false
       - name: Install mise (pinned, checksum verified)
         run: sh scripts/install-mise.sh "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: mise install go
+      - run: make tools
       - run: podman --version
-      - run: mise run e2e
+      - run: make e2e

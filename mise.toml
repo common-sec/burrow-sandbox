@@ -1,7 +1,8 @@
 # Tools for working on burrow, pinned to exact versions. mise.lock records the checksum of every
-# download per platform (`mise lock`), so a substituted file fails to install.
-# Update: change a version here, run `mise lock`, review the diff. New versions only after a
+# download per platform (`make lock`), so a substituted file fails to install.
+# Update: change a version here, run `make lock`, review the diff. New versions only after a
 # 7-day cooldown (minimum_release_age below, same as Dependabot's cooldown).
+# Commands live in the Makefile (`make help`); mise only provides the pinned tools.
 
 [settings]
 # Refuse any tool version released less than 7 days ago.
@@ -11,8 +12,7 @@ locked = true
 # Verify GitHub artifact attestations and SLSA provenance where a tool publishes them.
 github_attestations = true
 slsa = true
-# Never run arbitrary plugins or hooks from untrusted config files.
-paranoid = true
+# (paranoid is a global-only setting: mise ignores it here. Set it in ~/.config/mise/config.toml.)
 
 [tools]
 go = "1.27.4"
@@ -24,45 +24,3 @@ go = "1.27.4"
 CGO_ENABLED = "0"
 GOFLAGS = "-trimpath -mod=readonly"
 GOTOOLCHAIN = "local"
-
-# ---- tasks: the same commands run locally and in CI ------------------------------------------
-[tasks.fmt]
-description = "Format the Go code (gofumpt + goimports through golangci-lint)"
-run = "golangci-lint fmt"
-
-[tasks.lint]
-description = "Static checks: go vet and golangci-lint (gosec, staticcheck, errcheck, ...)"
-run = ["go vet ./...", "golangci-lint run"]
-
-[tasks.test]
-description = "Unit tests with the race detector off (CGO is disabled), shuffled"
-run = "go test -count=1 -shuffle=on ./..."
-
-[tasks.vuln]
-description = "Known vulnerabilities in reachable code (Go vulnerability database)"
-run = "govulncheck ./..."
-
-[tasks.build]
-description = "Static binaries for every product and platform into dist/"
-run = "sh scripts/build.sh"
-
-[tasks.check]
-description = "Everything that must pass before a push: lint, test, vuln, build"
-depends = ["lint", "test", "vuln", "build"]
-
-[tasks.scan]
-description = "Secret, SAST and dependency scans in pinned, locked-down containers (podman or docker)"
-run = "sh scripts/scan.sh all"
-
-[tasks.images]
-description = "Build the proxy and forwarder images locally (localhost/burrow-*:dev)"
-run = "sh scripts/images.sh"
-
-[tasks.e2e]
-description = "End-to-end test against real rootless Podman (needs podman; builds the images)"
-depends = ["images"]
-run = "sh scripts/e2e.sh"
-
-[tasks."hooks:install"]
-description = "Install a git pre-push hook that runs `mise run check` and `mise run scan`"
-run = "sh scripts/install-hooks.sh"

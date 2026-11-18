@@ -23,17 +23,17 @@ podman machine start burrow-wsl
 podman system connection default burrow-wsl
 
 # In a clone of this repository
-mise install
-mise run images
-go build -o burrow.exe ./cmd/burrow
-.\burrow.exe up examples\envs\dev.env       # set WORKSPACE="C:\Users\me\src\project" first
-.\burrow.exe exec dev -- curl -sI https://pypi.org/simple/
-.\burrow.exe --dry-run up examples\envs\dev.env   # shows exactly what is sent to podman
+make tools images                     # from Git Bash or WSL; or: mise install, podman build ...
+mise exec -- go build -o burrow.exe ./cmd/burrow
+.\burrow.exe run alpine --name dev --workspace C:\Users\me\src\project   # /work
+.\burrow.exe shell dev -- id
+.\burrow.exe up -f examples\burrow.sandbox    # set WORKSPACE="C:\Users\me\src\project" first
+.\burrow.exe --dry-run up -f examples\burrow.sandbox   # shows exactly what is sent to podman
 ```
 
 ## What to record for each backend (into TESTING.md)
 
-1. `mise run e2e` from Git Bash or WSL against the machine, or the commands above by hand.
+1. `make e2e` from Git Bash or WSL against the machine, or the commands above by hand.
 2. Workspace: a `C:\` folder mounted at `/work`; file owner and permissions inside; speed of
    reading many small files.
 3. Ports: `burrow port dev 8080` reachable from a Windows browser at `http://127.0.0.1:8080`.
