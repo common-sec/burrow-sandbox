@@ -1,0 +1,45 @@
+# Dependabot keeps pinned dependencies current with a 7-day minimum age (cooldown), the same as
+# mise's minimum_release_age: a new release is only proposed once it has been public for a week.
+# Security updates are not delayed by the cooldown.
+# Not covered by Dependabot: the tools in mise.toml (see docs/DEVELOPMENT.md, "Updating pins").
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps(go)"
+
+  # Base images of the proxy and forwarder images (pinned by tag + digest).
+  - package-ecosystem: docker
+    directories: ["/packaging/proxy", "/packaging/forward"]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps(docker)"
+
+  # Scanner images (compose.yaml, pinned by tag + digest).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps(compose)"
+
+  # GitHub Actions (pinned by commit SHA).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps(actions)"

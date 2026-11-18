@@ -1,0 +1,10 @@
+# Trivy database update. Network only through its own proxy, which allows only the DB mirror.
+# Never sees the workspace. Writes the shared cache volume burrow-cache-trivy.
+#   burrow run dev examples/presets/trivy-db.preset
+NAME=trivy-db
+IMAGE=docker.io/aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+WORKSPACE=none
+NETWORK=proxy
+ALLOW=mirror.gcr.io
+CACHE=trivy:/cache:rw
+ARGS=fs --cache-dir /cache --skip-version-check --disable-telemetry --quiet --download-db-only --db-repository mirror.gcr.io/aquasec/trivy-db:2 /tmp
