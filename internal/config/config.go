@@ -1,10 +1,11 @@
 // Package config reads sandbox and preset definitions.
 //
-// burrow runs presets, not images. A preset names a pinned image and the settings it runs with.
-// It is used two ways: `burrow run PRESET` starts a persistent sandbox from it, and
-// `burrow exec PRESET` runs it as a one-off tool next to a sandbox, inheriting what the preset
-// allows (workspace, proxy) and never more than the sandbox has. A sandbox file (`burrow up`) is a
-// preset reference plus local settings, like a compose file.
+// burrow runs presets, not images. A preset names a pinned image and the least privilege it needs
+// to do its job. It is used two ways: `burrow run PRESET` starts a persistent sandbox from it, and
+// `burrow exec PRESET` runs it as a one-off tool next to a sandbox (a sibling, with its own
+// restrictions). Where the preset says inherit, the tool takes the sandbox's setting, or the
+// preset's own fallback when there is no sandbox. Strict mode caps tools by their sandbox. A
+// sandbox file (`burrow up`) is a preset reference plus local settings, like a compose file.
 //
 // The format is deliberately small: one KEY=VALUE per line, '#' comments, optional single or
 // double quotes around the value. No variable expansion, no command substitution, no includes:
@@ -16,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,7 +42,7 @@ const (
 	WorkspaceNone    WorkspaceMode = "none"
 	WorkspaceRO      WorkspaceMode = "ro"
 	WorkspaceRW      WorkspaceMode = "rw"
-	WorkspaceInherit WorkspaceMode = "inherit" // exec only: the sandbox's mode
+	WorkspaceInherit WorkspaceMode = "inherit" // exec only: the sandbox's mode, else the fallback
 )
 
 // NetworkMode is how a preset reaches the network.
@@ -52,10 +52,17 @@ type NetworkMode string
 const (
 	NetworkNone  NetworkMode = "none"  // no interface but loopback
 	NetworkProxy NetworkMode = "proxy" // internal network whose only exit is its own proxy (SB3)
-	// NetworkInherit (exec only): its own proxy with the sandbox's allowlist. The tool never joins
-	// the sandbox's network, so it cannot reach the sandbox nor the sandbox it.
+	// NetworkInherit (exec only): its own proxy with the sandbox's allowlist, else the fallback.
+	// The tool never joins the sandbox's network, so it cannot reach the sandbox nor the sandbox it.
 	NetworkInherit NetworkMode = "inherit"
 )
+
+// ToolCaps are the capabilities a tool preset may ask for with CAP_ADD: at most Podman's own
+// default set plus NET_RAW. Nothing that administers the kernel, devices, namespaces or other
+// processes (SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN, BPF...). no-new-privileges stays on.
+// Sandboxes never get any; strict mode refuses tools that ask (decision 0007).
+var ToolCaps = keys("CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "NET_BIND_SERVICE",
+	"NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT")
 
 // Env is a persistent sandbox: one agent or developer environment. It is what `up` and `run`
 // start and what burrow stores, resolved: no preset reference, no relative paths.
@@ -69,7 +76,10 @@ type Env struct {
 	RunAs         string // uid:gid inside the sandbox; the host user is mapped to it (keep-id)
 	ProxyImage    string
 	ForwardImage  string
-	Memory        string // podman --memory, optional
+	Memory        string   // podman --memory, optional
+	Env           []string // KEY=VALUE, not secret
+	// Strict caps every tool run next to this sandbox by the sandbox's own settings.
+	Strict bool
 	// Definition is the sandbox file `up` read. When it is inside the workspace it is mounted
 	// read-only over itself, so the agent cannot widen its own sandbox for the next `up`.
 	Definition string
@@ -77,23 +87,30 @@ type Env struct {
 
 // Preset is a named, pinned image with the settings it runs with (see the package comment).
 type Preset struct {
-	Name          string
-	Image         string
-	Args          []string
-	WorkspaceMode WorkspaceMode // ro by default for a preset
-	Network       NetworkMode
-	Allow         []string
-	Engine        Engine
-	RunAs         string
-	Cache         *Cache
-	Memory        string
-	Source        string            // file path, or "built-in"
-	raw           map[string]string // the keys the preset sets, for NewSandbox
+	Name              string
+	Description       string
+	Image             string
+	Args              []string
+	WorkspaceMode     WorkspaceMode // ro by default for a tool
+	WorkspaceFallback WorkspaceMode // for inherit without a sandbox; ro by default
+	Network           NetworkMode   // none by default for a tool
+	NetworkFallback   NetworkMode   // for inherit without a sandbox; none by default
+	Allow             []string
+	Engine            Engine
+	RunAs             string
+	Caches            []Cache
+	CapAdd            []string
+	Env               []string // KEY=VALUE, not secret
+	Memory            string
+	Source            string            // file path
+	raw               map[string]string // the keys the preset sets, for NewSandbox
 }
 
-// Cache is a named volume shared by runs of the same tool (e.g. the Trivy database).
+// Cache is a named volume shared by the tools of one sandbox (e.g. the Trivy database, written by
+// trivy-db and read by trivy-scan). Its podman volume is burrow-cache-<sandbox>-<name>: tools of
+// another sandbox (or run without one) never see it, so they cannot poison it.
 type Cache struct {
-	Volume string // without the burrow-cache- prefix
+	Volume string // the cache's name, without prefix or scope
 	Path   string // mount point inside the container
 	Mode   string // rw, ro, or O (overlay: writes are discarded with the container)
 }
@@ -161,17 +178,17 @@ func unquote(v string) (string, error) {
 
 // envKeys are the keys of a stored sandbox (state, written by burrow).
 var envKeys = keys("NAME", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "ALLOW", "ENGINE", "RUN_AS",
-	"PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "DEFINITION")
+	"PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "DEFINITION")
 
 // sandboxKeys are the keys of a sandbox file (`burrow up`).
 var sandboxKeys = keys("NAME", "PRESET", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "NETWORK", "ALLOW",
-	"ENGINE", "RUN_AS", "PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY")
+	"ENGINE", "RUN_AS", "PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT")
 
-var presetKeys = keys("NAME", "IMAGE", "ARGS", "WORKSPACE_MODE", "NETWORK", "ALLOW", "ENGINE", "RUN_AS",
-	"CACHE", "MEMORY")
+var presetKeys = keys("NAME", "DESCRIPTION", "IMAGE", "ARGS", "WORKSPACE_MODE", "NETWORK", "ALLOW",
+	"ENGINE", "RUN_AS", "CACHE", "CAP_ADD", "ENV", "MEMORY")
 
 // toolOnly are preset keys that make sense only for exec.
-var toolOnly = []string{"ARGS", "CACHE"}
+var toolOnly = []string{"ARGS", "CACHE", "CAP_ADD"}
 
 func keys(k ...string) map[string]bool {
 	m := map[string]bool{}
@@ -204,7 +221,13 @@ func LoadEnv(path string) (*Env, error) {
 		ProxyImage:    def(m["PROXY_IMAGE"], DefaultProxyImage),
 		ForwardImage:  def(m["FORWARD_IMAGE"], DefaultForwardImage),
 		Memory:        m["MEMORY"],
+		Env:           commaList(m["ENV"]),
 		Definition:    m["DEFINITION"],
+	}
+	var err2 error
+	e.Strict, err2 = parseBool("STRICT", m["STRICT"])
+	if err2 != nil {
+		return nil, err2
 	}
 	return e, e.Validate()
 }
@@ -232,7 +255,9 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 			}
 		}
 		for k, v := range p.raw {
-			m[k] = v
+			if k != "DESCRIPTION" {
+				m[k] = v
+			}
 		}
 	}
 	for k, v := range file {
@@ -260,6 +285,11 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 		ProxyImage:    def(m["PROXY_IMAGE"], DefaultProxyImage),
 		ForwardImage:  def(m["FORWARD_IMAGE"], DefaultForwardImage),
 		Memory:        m["MEMORY"],
+		Env:           commaList(m["ENV"]),
+	}
+	var err error
+	if e.Strict, err = parseBool("STRICT", m["STRICT"]); err != nil {
+		return nil, err
 	}
 	if e.WorkspaceMode != WorkspaceNone {
 		ws := def(m["WORKSPACE"], ".")
@@ -277,9 +307,12 @@ func (e *Env) Validate() error {
 	if !nameRe.MatchString(e.Name) {
 		errs = append(errs, fmt.Errorf("NAME %q: 2 to 32 of a-z, 0-9 and '-'", e.Name))
 	}
+	if e.Name == "exec" {
+		errs = append(errs, errors.New(`NAME "exec" is reserved (tools run without a sandbox)`))
+	}
 	errs = append(errs, checkImage("IMAGE", e.Image), checkImage("PROXY_IMAGE", e.ProxyImage),
 		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), checkRunAs(e.RunAs),
-		checkHosts(e.Allow), checkMemory(e.Memory))
+		checkHosts(e.Allow), checkMemory(e.Memory), checkEnv(e.Env))
 	switch e.WorkspaceMode {
 	case WorkspaceRW, WorkspaceRO:
 		if e.Workspace == "" {
@@ -321,41 +354,65 @@ func ParsePreset(r io.Reader, src string) (*Preset, error) {
 		return nil, fmt.Errorf("%s: %w", src, err)
 	}
 	p := &Preset{
-		Source:        src,
-		raw:           m,
-		Name:          m["NAME"],
-		Image:         m["IMAGE"],
-		Args:          strings.Fields(m["ARGS"]),
-		WorkspaceMode: WorkspaceMode(def(m["WORKSPACE_MODE"], string(WorkspaceRO))),
-		Network:       NetworkMode(def(m["NETWORK"], string(NetworkNone))),
-		Allow:         list(m["ALLOW"]),
-		Engine:        Engine(def(m["ENGINE"], string(EngineCrun))),
-		RunAs:         def(m["RUN_AS"], "65532:65532"),
-		Memory:        m["MEMORY"],
+		Source:      src,
+		raw:         m,
+		Name:        m["NAME"],
+		Description: m["DESCRIPTION"],
+		Image:       m["IMAGE"],
+		Args:        strings.Fields(m["ARGS"]),
+		Allow:       list(m["ALLOW"]),
+		Engine:      Engine(def(m["ENGINE"], string(EngineCrun))),
+		RunAs:       def(m["RUN_AS"], "65532:65532"),
+		CapAdd:      list(m["CAP_ADD"]),
+		Env:         commaList(m["ENV"]),
+		Memory:      m["MEMORY"],
 	}
 	var errs []error
+	ws, wsFb, _ := strings.Cut(def(m["WORKSPACE_MODE"], string(WorkspaceRO)), ":")
+	p.WorkspaceMode, p.WorkspaceFallback = WorkspaceMode(ws), WorkspaceMode(def(wsFb, string(WorkspaceRO)))
+	nw, nwFb, _ := strings.Cut(def(m["NETWORK"], string(NetworkNone)), ":")
+	p.Network, p.NetworkFallback = NetworkMode(nw), NetworkMode(def(nwFb, string(NetworkNone)))
 	if c := m["CACHE"]; c != "" {
-		p.Cache, err = parseCache(c)
+		p.Caches, err = parseCaches(c)
 		errs = append(errs, err)
 	}
 	if !nameRe.MatchString(p.Name) {
 		errs = append(errs, fmt.Errorf("NAME %q: 2 to 32 of a-z, 0-9 and '-'", p.Name))
 	}
 	errs = append(errs, checkImage("IMAGE", p.Image), checkEngine(p.Engine), checkRunAs(p.RunAs),
-		checkHosts(p.Allow), checkMemory(p.Memory))
-	switch p.WorkspaceMode {
-	case WorkspaceNone, WorkspaceRO, WorkspaceRW, WorkspaceInherit:
-	default:
-		errs = append(errs, fmt.Errorf("WORKSPACE_MODE %q: none, ro, rw or inherit", p.WorkspaceMode))
+		checkHosts(p.Allow), checkMemory(p.Memory), checkEnv(p.Env), checkCaps(p.CapAdd))
+	if p.WorkspaceMode != WorkspaceInherit && wsFb != "" {
+		errs = append(errs, errors.New("WORKSPACE_MODE: a fallback (:mode) only goes with inherit"))
 	}
-	switch p.Network {
-	case NetworkNone, NetworkInherit:
-		if len(p.Allow) > 0 {
-			errs = append(errs, errors.New("ALLOW needs NETWORK=proxy"))
+	if p.Network != NetworkInherit && nwFb != "" {
+		errs = append(errs, errors.New("NETWORK: a fallback (:mode) only goes with inherit"))
+	}
+	for _, w := range []WorkspaceMode{p.WorkspaceMode, p.WorkspaceFallback} {
+		switch w {
+		case WorkspaceNone, WorkspaceRO, WorkspaceRW, WorkspaceInherit:
+		default:
+			errs = append(errs, fmt.Errorf("WORKSPACE_MODE %q: none, ro, rw or inherit[:none|ro|rw]", w))
 		}
-	case NetworkProxy:
-	default:
-		errs = append(errs, fmt.Errorf("NETWORK %q: none, proxy or inherit", p.Network))
+	}
+	if p.WorkspaceFallback == WorkspaceInherit {
+		errs = append(errs, errors.New("WORKSPACE_MODE: the fallback cannot be inherit"))
+	}
+	for _, n := range []NetworkMode{p.Network, p.NetworkFallback} {
+		switch n {
+		case NetworkNone, NetworkProxy, NetworkInherit:
+		default:
+			errs = append(errs, fmt.Errorf("NETWORK %q: none, proxy or inherit[:none|proxy]", n))
+		}
+	}
+	if p.NetworkFallback == NetworkInherit {
+		errs = append(errs, errors.New("NETWORK: the fallback cannot be inherit"))
+	}
+	// ALLOW is the preset's own allowlist: used with proxy, or as inherit's proxy fallback.
+	if len(p.Allow) > 0 && p.Network != NetworkProxy && (p.Network != NetworkInherit || p.NetworkFallback != NetworkProxy) {
+		errs = append(errs, errors.New("ALLOW needs NETWORK=proxy or NETWORK=inherit:proxy"))
+	}
+	if strings.ContainsAny(p.Description, "\r\n") {
+		errs = append(errs, errors.New("DESCRIPTION: one line"))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, fmt.Errorf("%s: %w", src, err)
@@ -364,72 +421,116 @@ func ParsePreset(r io.Reader, src string) (*Preset, error) {
 }
 
 // FindPreset resolves a preset reference. A reference with a path separator or a .preset suffix is
-// a file. Otherwise it is a name: userDir/NAME.preset first (the user's own presets, outside any
-// workspace), then the presets built into burrow. Presets are never looked up in the workspace:
-// an agent could write one there and have the host run it with wider rights.
-func FindPreset(ref, userDir string, builtin fs.FS) (*Preset, error) {
+// a file. Otherwise it is a name in userDir (NAME.preset): the user's own presets, outside any
+// workspace. Presets are never looked up in the workspace: an agent could write one there and have
+// the host run it with wider rights. A shared index of published presets is planned (roadmap 0.4).
+func FindPreset(ref, userDir string) (*Preset, error) {
 	if strings.ContainsAny(ref, `/\`) || strings.HasSuffix(ref, ".preset") {
 		return LoadPreset(ref)
 	}
 	if !nameRe.MatchString(ref) {
 		return nil, fmt.Errorf("preset %q: a name (a-z, 0-9, '-') or a path to a .preset file", ref)
 	}
-	if userDir != "" {
-		p, err := LoadPreset(filepath.Join(userDir, ref+".preset"))
-		if !errors.Is(err, os.ErrNotExist) {
-			return p, err
-		}
+	p, err := LoadPreset(filepath.Join(userDir, ref+".preset"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("no preset %q in %s (see `burrow presets`)", ref, userDir)
 	}
-	f, err := builtin.Open(ref + ".preset")
-	if err != nil {
-		return nil, fmt.Errorf("no preset %q (see `burrow presets`)", ref)
-	}
-	defer func() { _ = f.Close() }()
-	return ParsePreset(f, "built-in")
+	return p, err
 }
 
-// PresetInfo is one entry of ListPresets.
-type PresetInfo struct{ Name, Source string }
-
-// ListPresets lists the presets FindPreset can resolve by name; user presets hide built-ins.
-func ListPresets(userDir string, builtin fs.FS) []PresetInfo {
-	seen := map[string]string{}
-	if userDir != "" {
-		files, _ := filepath.Glob(filepath.Join(userDir, "*.preset"))
-		for _, f := range files {
-			seen[strings.TrimSuffix(filepath.Base(f), ".preset")] = f
-		}
-	}
-	files, _ := fs.Glob(builtin, "*.preset")
+// ListPresets returns the valid presets in userDir, sorted by name. Invalid files are reported in
+// the error but do not hide the others.
+func ListPresets(userDir string) ([]*Preset, error) {
+	files, _ := filepath.Glob(filepath.Join(userDir, "*.preset"))
+	sort.Strings(files)
+	var out []*Preset
+	var errs []error
 	for _, f := range files {
-		n := strings.TrimSuffix(f, ".preset")
-		if _, ok := seen[n]; !ok {
-			seen[n] = "built-in"
+		p, err := LoadPreset(f)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, errors.Join(errs...)
+}
+
+// SearchPresets returns the presets whose name or description contains term (any case).
+func SearchPresets(all []*Preset, term string) []*Preset {
+	term = strings.ToLower(term)
+	var out []*Preset
+	for _, p := range all {
+		if strings.Contains(strings.ToLower(p.Name+" "+p.Description), term) {
+			out = append(out, p)
 		}
 	}
-	out := make([]PresetInfo, 0, len(seen))
-	for n, s := range seen {
-		out = append(out, PresetInfo{n, s})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
-func parseCache(s string) (*Cache, error) {
-	parts := strings.Split(s, ":")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("CACHE %q: volume:/path:rw|ro|O", s)
+func parseCaches(s string) ([]Cache, error) {
+	var out []Cache
+	seen := map[string]bool{}
+	for _, one := range list(s) {
+		parts := strings.Split(one, ":")
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("CACHE %q: name:/path:rw|ro|O", one)
+		}
+		c := Cache{Volume: parts[0], Path: parts[1], Mode: parts[2]}
+		if !volRe.MatchString(c.Volume) || !strings.HasPrefix(c.Path, "/") || strings.Contains(c.Path, "..") {
+			return nil, fmt.Errorf("CACHE %q: invalid name or path", one)
+		}
+		switch c.Mode {
+		case "rw", "ro", "O":
+		default:
+			return nil, fmt.Errorf("CACHE %q: mode rw, ro or O", one)
+		}
+		if seen[c.Volume] || seen[c.Path] {
+			return nil, fmt.Errorf("CACHE %q: name or path used twice", one)
+		}
+		seen[c.Volume], seen[c.Path] = true, true
+		out = append(out, c)
 	}
-	c := &Cache{Volume: parts[0], Path: parts[1], Mode: parts[2]}
-	if !volRe.MatchString(c.Volume) || !strings.HasPrefix(c.Path, "/") || strings.Contains(c.Path, "..") {
-		return nil, fmt.Errorf("CACHE %q: invalid volume or path", s)
+	return out, nil
+}
+
+func parseBool(key, v string) (bool, error) {
+	switch v {
+	case "", "false":
+		return false, nil
+	case "true":
+		return true, nil
 	}
-	switch c.Mode {
-	case "rw", "ro", "O":
-	default:
-		return nil, fmt.Errorf("CACHE %q: mode rw, ro or O", s)
+	return false, fmt.Errorf("%s %q: true or false", key, v)
+}
+
+var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+
+// checkEnv validates ENV entries. They are plain settings, never secrets (those will come from the
+// proxy and a vault, roadmap 0.3). Proxy variables are burrow's own and cannot be overridden.
+func checkEnv(env []string) error {
+	for _, kv := range env {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || !envKeyRe.MatchString(k) {
+			return fmt.Errorf("ENV %q: KEY=value, comma separated", kv)
+		}
+		if strings.HasSuffix(strings.ToUpper(k), "_PROXY") {
+			return fmt.Errorf("ENV %s: proxy variables are set by burrow", k)
+		}
+		if strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("ENV %s: one line", k)
+		}
 	}
-	return c, nil
+	return nil
+}
+
+func checkCaps(caps []string) error {
+	for _, c := range caps {
+		if !ToolCaps[c] {
+			return fmt.Errorf("CAP_ADD %q: one of Podman's default capabilities or NET_RAW, without CAP_ (decision 0007)", c)
+		}
+	}
+	return nil
 }
 
 func parseFile(path string, known map[string]bool) (map[string]string, error) {
@@ -450,6 +551,17 @@ func def(v, d string) string {
 		return d
 	}
 	return v
+}
+
+// commaList splits on commas only (values may contain spaces), trimming each entry.
+func commaList(v string) []string {
+	var out []string
+	for _, x := range strings.Split(v, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func list(v string) []string {
@@ -516,6 +628,10 @@ func (e *Env) String() string {
 	w("PROXY_IMAGE", e.ProxyImage)
 	w("FORWARD_IMAGE", e.ForwardImage)
 	w("MEMORY", e.Memory)
+	w("ENV", strings.Join(e.Env, ","))
+	if e.Strict {
+		w("STRICT", "true")
+	}
 	w("DEFINITION", e.Definition)
 	return b.String()
 }

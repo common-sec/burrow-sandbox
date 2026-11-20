@@ -1,9 +1,9 @@
 // Package proxy is a minimal HTTPS CONNECT proxy with a host allowlist.
 //
-// It is a TEST STAND-IN, the Go version of the research PoCs' proxy.py. It does not inspect TLS,
-// does not inject credentials and has no method or path rules. The real proxy is the one
-// DR-0009 selects (an authenticating proxy with an HTTPS allowlist by host, method and path, R7);
-// burrow will ship that one instead. What this one does enforce:
+// It is a TEMPORARY STAND-IN, the Go version of the research PoCs' proxy.py, until a proxy
+// solution is chosen (an authenticating proxy with an HTTPS allowlist by host, method and path,
+// R7; roadmap 0.3). It does not inspect TLS, does not inject credentials and has no method or
+// path rules, and it is not extended except for a test or an investigation. It does enforce:
 //   - only CONNECT, only to allowed host names (exact, or *.domain for subdomains);
 //   - only allowed ports (443 by default);
 //   - no IP literals, and no allowed name that resolves to a private, loopback or link-local

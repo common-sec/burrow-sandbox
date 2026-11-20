@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -20,11 +21,18 @@ func TestParseArgsFlagsAnywhereBeforeDash(t *testing.T) {
 
 func TestDryRunCommands(t *testing.T) {
 	t.Setenv("BURROW_STATE_DIR", t.TempDir())
-	t.Setenv("BURROW_PRESETS_DIR", t.TempDir())
+	presets, err := filepath.Abs("../../test/presets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BURROW_PRESETS_DIR", presets)
 	t.Chdir(t.TempDir())
 	for _, args := range [][]string{
 		{"--dry-run", "run", "alpine", "--name", "t1"},
 		{"--dry-run", "exec", "--workspace", ".", "trivy-scan"},
+		{"--dry-run", "exec", "--strict", "--workspace", ".", "trivy"},
+		{"--dry-run", "presets", "info", "trivy"},
+		{"--dry-run", "presets", "search", "trivy"},
 		{"--dry-run", "presets"},
 	} {
 		if err := run(args); err != nil {
@@ -33,5 +41,8 @@ func TestDryRunCommands(t *testing.T) {
 	}
 	if err := run([]string{"--dry-run", "up"}); err == nil {
 		t.Error("up without a sandbox file: want error")
+	}
+	if err := run([]string{"--dry-run", "presets", "info", "missing"}); err == nil {
+		t.Error("info on a missing preset: want error")
 	}
 }

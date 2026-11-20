@@ -3,27 +3,21 @@ package config
 import (
 	"path/filepath"
 	"testing"
-
-	"github.com/common-sec/burrow-sandbox/presets"
 )
 
-// The shipped presets and the example sandbox file must stay valid.
-func TestBuiltinPresetsAndExample(t *testing.T) {
-	list := ListPresets("", presets.FS)
-	if len(list) == 0 {
-		t.Fatal("no built-in presets")
-	}
-	for _, p := range list {
-		if _, err := FindPreset(p.Name, "", presets.FS); err != nil {
-			t.Errorf("%s: %v", p.Name, err)
-		}
+// The test presets and the example sandbox file must stay valid.
+func TestTestPresetsAndExample(t *testing.T) {
+	dir := "../../test/presets"
+	all, err := ListPresets(dir)
+	if err != nil || len(all) < 5 {
+		t.Fatalf("test presets: %d, %v", len(all), err)
 	}
 	file := "../../examples/burrow.sandbox"
 	keys, err := LoadSandboxFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := FindPreset(keys["PRESET"], "", presets.FS)
+	p, err := FindPreset(keys["PRESET"], dir)
 	if err != nil {
 		t.Fatal(err)
 	}

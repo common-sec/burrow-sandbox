@@ -55,5 +55,6 @@ cooldown option is only available for version updates, not security updates") an
 - `.github/CODEOWNERS` assigns `@common-sec/security` to every file that pins third-party code.
   J is creating the team (PR #1); it must have write access, or GitHub ignores the lines.
   J is also switching on Dependabot security updates in the repository settings.
-- Still not covered: `mise.toml`, built-in presets, `scripts/install-mise.sh` (manual, reviewed by
-  the security team). Renovate covers mise; a decision if the manual work grows.
+- Still not covered: `mise.toml` (manual, reviewed by the security team) and, until 2026-11-20,
+  `scripts/install-mise.sh` (now a daily workflow, `.github/workflows/update-pins.yml`). Renovate
+  covers mise; a decision if the manual work grows.

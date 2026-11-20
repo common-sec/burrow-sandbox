@@ -1,6 +1,8 @@
 # 0005: burrow runs presets, not images
 
-**Status:** proposed (2026-11-18). **Asked by:** J (review of PR #1): "burrow runs presets, not
+**Status:** proposed (2026-11-18); **partly superseded by [0007](0007-preset-security-model.md)**
+(2026-11-20): tools are no longer capped by the sandbox unless strict mode is on, `inherit` has
+a fallback, and there are no built-in presets. **Asked by:** J (review of PR #1): "burrow runs presets, not
 images", "up and run should run a persistent sandbox", "exec should run a preset", "allow the
 preset to inherit configs like fs mounts (rw/ro/inherit)... maybe proxy settings".
 
@@ -34,8 +36,9 @@ pick "trivy-scan", not an image and twelve flags (O7).
 - **Where the image comes from**, first match wins: `--image`, the sandbox file's `IMAGE`, the
   preset's `IMAGE`. Every image is still pinned by digest or `localhost/`.
 - **Where presets come from:** a path (contains `/` or ends in `.preset`), then the user's
-  presets folder (`burrow presets` prints it), then the presets built into the binary
-  (`presets/*.preset`, embedded). **Never from the workspace**: the agent can write there, and a
+  presets folder (`burrow presets` prints it). *(Built-in presets embedded in the binary were
+  removed on 2026-11-20: a binary that is not updated would keep pointing at old images. Prebuilt,
+  published presets with an index replace them: roadmap 0.4.)* **Never from the workspace**: the agent can write there, and a
   preset found there would run with whatever rights it asks for.
 - **Inheritance (exec):** `WORKSPACE_MODE=inherit` takes the sandbox's mode; `NETWORK=inherit`
   gives the tool its **own** proxy with the sandbox's allowlist (it never joins the sandbox's
@@ -63,8 +66,8 @@ pick "trivy-scan", not an image and twelve flags (O7).
 - A sandbox's `NETWORK` must be `proxy` (the default): a sandbox always has its own proxy, and an
   empty `ALLOW` blocks everything. `none` for sandboxes is not implemented.
 - The format stays KEY=VALUE ([0003](0003-definition-format.md)), provisional.
-- Built-in presets are pinned by digest in `presets/`; Dependabot cannot update them (*gap*:
-  updated by hand, reviewed by the security team through CODEOWNERS).
+- ~~Built-in presets are pinned by digest in `presets/`~~: removed. Test presets in
+  `test/presets` use images built from `test/images/<name>/Dockerfile`, which Dependabot updates.
 - A preset given by path is trusted as the user's choice: a path into the workspace runs what the
   agent may have written. Documented in ARCHITECTURE.md; a warning when a preset path is inside a
   running sandbox's workspace is a possible next step.

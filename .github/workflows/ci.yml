@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   check:
-    name: lint, test, vuln, build
+    name: lint, test, vuln, build, forwarder
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -40,12 +40,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scan: [secrets, sast, deps]
+        scan: [secrets, sast, deps, images]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0   # full history, so the secrets scan sees every commit
+      # `images` builds the proxy and forwarder images first, then scans them for
+      # vulnerabilities and secrets.
       - name: ${{ matrix.scan }} (rootless podman, same target as `make scan`)
         run: make scan-${{ matrix.scan }}
 

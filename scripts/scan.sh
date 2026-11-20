@@ -1,9 +1,10 @@
 #!/bin/sh
 # Security scans, local first: the same containers run here and in CI.
-#   sh scripts/scan.sh all|secrets|sast|deps
+#   sh scripts/scan.sh all|secrets|sast|deps|images
 # Every scanner runs from an image pinned by digest, as a non-root user, with no capabilities, a
 # read-only root filesystem and the repository mounted read-only. The secrets scan has no network.
 # ENGINE=podman (default) or docker.
+# To be replaced by burrow itself once released: each scanner becomes a preset (`burrow exec`).
 set -eu
 cd "$(dirname "$0")/.."
 engine=${ENGINE:-podman}
@@ -42,10 +43,23 @@ deps() {
   "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" "$TRIVY" \
     fs --cache-dir /cache --no-progress --skip-version-check --disable-telemetry --exit-code 1 \
     --severity HIGH,CRITICAL --scanners vuln,misconfig,secret \
-    --skip-dirs /work/.cache --skip-dirs /work/dist /work
+    --skip-dirs /work/.cache --skip-dirs /work/dist --skip-dirs /work/crates/burrow-forward/target /work
+}
+images() {
+  echo "== images (trivy: vulnerabilities and secrets in every image we build)"
+  mkdir -p .cache/images
+  for img in localhost/burrow-proxy:dev localhost/burrow-forward:dev; do
+    tar=.cache/images/$(echo "$img" | tr '/:' '__').tar
+    rm -f "$tar"
+    "$engine" save -o "$tar" "$img"
+    # shellcheck disable=SC2086
+    "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" "$TRIVY" \
+      image --cache-dir /cache --no-progress --skip-version-check --disable-telemetry --exit-code 1 \
+      --severity HIGH,CRITICAL --scanners vuln,secret --input "/work/$tar"
+  done
 }
 case "${1:-all}" in
-  all) secrets; sast; deps ;;
-  secrets|sast|deps) "$1" ;;
-  *) echo "usage: $0 all|secrets|sast|deps" >&2; exit 2 ;;
+  all) secrets; sast; deps; images ;;
+  secrets|sast|deps|images) "$1" ;;
+  *) echo "usage: $0 all|secrets|sast|deps|images" >&2; exit 2 ;;
 esac

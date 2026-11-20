@@ -6,8 +6,8 @@ MISE ?= mise
 RUN = $(MISE) exec --
 LOCK_PLATFORMS = linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64
 
-.PHONY: help tools lock lock-check fmt lint test vuln build check scan scan-secrets scan-sast \
-	scan-deps images e2e hooks clean
+.PHONY: help tools lock lock-check fmt lint test vuln build forward check scan scan-secrets \
+	scan-sast scan-deps scan-images images test-images e2e hooks clean
 
 help: ## list the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  make %-13s %s\n", $$1, $$2}' Makefile
@@ -33,15 +33,18 @@ lint: ## go vet and golangci-lint (gosec, staticcheck, errcheck, noctx, ...)
 test: ## unit tests, shuffled
 	$(RUN) go test -count=1 -shuffle=on ./...
 
-vuln: ## known vulnerabilities in reachable code (govulncheck)
-	$(RUN) govulncheck ./...
+vuln: ## known vulnerabilities in reachable Go code (govulncheck, pinned in go.mod/go.sum)
+	$(RUN) go tool govulncheck ./...
 
 build: ## static, reproducible binaries for every platform into dist/, with SHA256SUMS
 	$(RUN) sh scripts/build.sh
 
-check: lint test vuln build ## everything that must pass before a push
+forward: ## the Rust forwarder: rustfmt, clippy, tests and build, inside its pinned build image
+	sh scripts/images.sh forward
 
-scan: scan-secrets scan-sast scan-deps ## TruffleHog, Semgrep, Trivy in pinned, locked-down containers
+check: lint test vuln build forward ## everything that must pass before a push
+
+scan: vuln scan-secrets scan-sast scan-deps scan-images ## govulncheck, TruffleHog, Semgrep, Trivy (code and images)
 
 scan-secrets: ## TruffleHog: the tree and the whole git history, no network
 	sh scripts/scan.sh secrets
@@ -49,13 +52,19 @@ scan-secrets: ## TruffleHog: the tree and the whole git history, no network
 scan-sast: ## Semgrep
 	sh scripts/scan.sh sast
 
-scan-deps: ## Trivy: dependencies, misconfigurations, secrets
+scan-deps: ## Trivy: dependencies, misconfigurations, secrets in the repository
 	sh scripts/scan.sh deps
 
-images: ## build the proxy and forwarder images (localhost/burrow-*:dev)
-	sh scripts/images.sh
+scan-images: images ## Trivy: vulnerabilities and secrets in the images we build
+	sh scripts/scan.sh images
 
-e2e: images ## end-to-end checks on real rootless Podman (docs/TESTING.md)
+images: ## build the proxy and forwarder images (localhost/burrow-*:dev)
+	sh scripts/images.sh proxy forward
+
+test-images: ## build the images of the test presets (localhost/burrow-test-*:dev, test/images)
+	sh scripts/images.sh test
+
+e2e: images test-images ## end-to-end checks on real rootless Podman (docs/TESTING.md)
 	$(RUN) sh scripts/e2e.sh
 
 hooks: ## install a git pre-push hook that runs `make check scan`

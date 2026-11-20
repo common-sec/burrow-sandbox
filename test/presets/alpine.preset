@@ -1,0 +1,8 @@
+# A minimal persistent sandbox: Alpine with a shell, the workspace read-write, network only
+# through its own proxy, and nothing allowed until a sandbox file allows it.
+#   BURROW_PRESETS_DIR=test/presets burrow run alpine [--name NAME]    then: burrow shell NAME
+NAME=alpine
+DESCRIPTION=Minimal Alpine sandbox with a shell (test preset)
+IMAGE=localhost/burrow-test-alpine:dev
+WORKSPACE_MODE=rw
+NETWORK=proxy

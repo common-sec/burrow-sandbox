@@ -20,11 +20,16 @@ images. All Go (DR-0006).
 
 ## Decision
 
-**A.** Products are `cmd/burrow`, `cmd/burrow-proxy`, `cmd/burrow-forward`. Shared packages are in
-`internal/`. Each product's packaging (Dockerfile now, release config later) is in
-`packaging/<product>/`. Move a product to its own module (option B) only when its dependencies or
-release cycle really diverge, for example if the DR-0009 proxy integration brings heavy
-dependencies that the CLI must not carry.
+**A.** Products are `cmd/burrow`, `cmd/burrow-proxy` (Go) and `crates/burrow-forward` (Rust,
+[0008](0008-rust-forwarder.md)). Shared Go packages are in `internal/`. Each product's packaging
+(Dockerfile now, release config later) is in `packaging/<product>/`. Presets and images used only
+by tests and examples are in `test/presets` and `test/images`. Move a product to its own module
+(option B) only when its dependencies or release cycle really diverge, for example if the chosen
+proxy brings heavy dependencies that the CLI must not carry. Where presets are built and indexed
+(here or in a dedicated repository) is an open decision: issue #6.
+
+*Updated 2026-11-20 (second review of PR #1): the forwarder moved to Rust; built-in presets were
+removed and the remaining ones moved to `test/`.*
 
 ## Consequences
 

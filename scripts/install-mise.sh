@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs a pinned mise release after checking its SHA-256 (used by CI; no third-party action).
-# Update: new version (at least 7 days old) and its checksums from the release's SHASUMS256.txt.
+# Update: scripts/update-mise.sh (run daily by .github/workflows/update-pins.yml, which opens a PR).
 set -eu
 MISE_VERSION=2026.11.5
 case "$(uname -s)-$(uname -m)" in

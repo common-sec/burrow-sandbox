@@ -1,0 +1,19 @@
+[package]
+name = "burrow-forward"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "Apache-2.0"
+description = "Relays one TCP port to one fixed IP:port (publishes a port of a running burrow sandbox)"
+publish = false
+
+# No dependencies: the standard library only. Adding a crate needs a decision record
+# (docs/decisions/) and Cargo.lock reviewed like code.
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

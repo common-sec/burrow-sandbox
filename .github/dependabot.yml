@@ -8,8 +8,9 @@
 #   removed in May 2025 in favour of code owners).
 # - One PR across ecosystems (multi-ecosystem-groups) is not used: as documented it cannot be
 #   limited to minor and patch, so majors would hide inside it (docs/decisions/0006).
-# Not covered by Dependabot: mise.toml, the built-in presets (presets/*.preset) and
-# scripts/install-mise.sh (see docs/DEVELOPMENT.md, "Updating pins").
+# Not covered by Dependabot: mise.toml (update by hand, docs/DEVELOPMENT.md "Updating pins"),
+# scripts/install-mise.sh (.github/workflows/update-pins.yml opens a PR) and the pinned image
+# constants in Go tests (by hand).
 version: 2
 
 updates:
@@ -31,9 +32,34 @@ updates:
     commit-message:
       prefix: "deps(go)"
 
-  # Base images of the proxy and forwarder images (pinned by tag + digest).
+  # Rust forwarder (crates/burrow-forward/Cargo.lock). No dependencies today; this catches any
+  # that are added and keeps the lockfile honest.
+  - package-ecosystem: cargo
+    directory: /crates/burrow-forward
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(cargo)"
+
+  # Base images, pinned by tag + digest: the proxy and forwarder images, and the images of the
+  # test presets (test/images/<name>/Dockerfile, one per preset so each can be updated here).
   - package-ecosystem: docker
-    directories: ["/packaging/proxy", "/packaging/forward"]
+    directories:
+      - /packaging/proxy
+      - /packaging/forward
+      - /test/images/alpine
+      - /test/images/curl
+      - /test/images/trivy
     schedule:
       interval: daily
     cooldown:
@@ -50,6 +76,7 @@ updates:
       prefix: "deps(docker)"
 
   # Scanner images (compose.yaml, pinned by tag + digest).
+  # Remove this entry when burrow replaces compose.yaml (scanners as burrow presets).
   - package-ecosystem: docker-compose
     directory: /
     schedule:

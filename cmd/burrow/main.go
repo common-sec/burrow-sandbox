@@ -13,11 +13,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/common-sec/burrow-sandbox/internal/config"
 	"github.com/common-sec/burrow-sandbox/internal/podman"
 	"github.com/common-sec/burrow-sandbox/internal/sandbox"
-	"github.com/common-sec/burrow-sandbox/presets"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
@@ -29,18 +29,19 @@ const SandboxFile = "burrow.sandbox"
 
 const usage = `burrow: sandboxes for AI agents and their tools, on rootless Podman (prototype)
 
-burrow runs presets, not images: a preset is a pinned image plus the settings it runs with.
-Built-in presets ship with burrow; your own go in the presets folder (` + "`burrow presets`" + `).
+burrow runs tool and environment presets focused on security, not images: a preset is a pinned
+image plus the least privilege it needs. Presets live in your presets folder (` + "`burrow presets`" + `).
 
 Usage:
   burrow up [-f FILE] [--image IMAGE]
         start the persistent sandbox defined by a sandbox file (default ./` + SandboxFile + `)
   burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR]
         start an ad-hoc persistent sandbox from a preset (workspace: current folder)
-  burrow exec [-s SANDBOX] [--workspace DIR] PRESET [-- ARGS...]
-        run a preset as a one-off tool next to the sandbox; it inherits the sandbox's workspace
-        and proxy where the preset says inherit, never more than the sandbox has. Without a
-        sandbox (-s, or a sandbox file here), it runs on its own (inherit: read-only, no network)
+  burrow exec [-s SANDBOX] [--strict] [--workspace DIR] PRESET [-- ARGS...]
+        run a preset as a one-off tool next to the sandbox, with what the preset asks for.
+        Where the preset says inherit, it takes the sandbox's workspace mode and allowlist;
+        without a sandbox (-s, or a sandbox file here) it takes the preset's fallback.
+        --strict (or STRICT=true in the sandbox file): never more than the sandbox has
   burrow shell [NAME] [-- CMD ARGS...]
         run a command inside the sandbox (default: sh)
   burrow port NAME PORT [HOST_PORT]
@@ -48,7 +49,8 @@ Usage:
   burrow down [NAME] [--purge]
         remove the sandbox (--purge: also its home volume and stored definition)
   burrow ls        list sandboxes
-  burrow presets   list the presets burrow can find by name
+  burrow presets [list | search TERM | info PRESET]
+        the presets in your presets folder
   burrow version
 
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
@@ -103,7 +105,7 @@ func run(argv []string) error {
 	m := &sandbox.Manager{Podman: runner, StateDir: state, TTY: isTerminal(os.Stdin)}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	find := func(ref string) (*config.Preset, error) { return config.FindPreset(ref, userPresets, presets.FS) }
+	find := func(ref string) (*config.Preset, error) { return config.FindPreset(ref, userPresets) }
 
 	cmd, rest := args[0], args[1:]
 	sub := flag.NewFlagSet("burrow "+cmd, flag.ContinueOnError)
@@ -155,10 +157,11 @@ func run(argv []string) error {
 		return up(ctx, m, e)
 	case "exec":
 		name := sub.String("s", "", "")
+		strict := sub.Bool("strict", false, "")
 		ws := sub.String("workspace", "", "")
 		pos, after, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow exec [-s SANDBOX] [--workspace DIR] PRESET [-- ARGS...]")
+			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] PRESET [-- ARGS...]")
 		}
 		if *name != "" && *ws != "" {
 			return errors.New("exec: --workspace is for a tool without a sandbox; a sandbox brings its own")
@@ -176,7 +179,7 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		return m.Exec(ctx, *name, dir, p, after)
+		return m.Exec(ctx, *name, dir, p, after, sandbox.ExecOptions{Strict: *strict})
 	case "shell":
 		pos, after, err := parseArgs(sub, rest)
 		if err != nil || len(pos) > 1 {
@@ -228,17 +231,76 @@ func run(argv []string) error {
 		}
 		return nil
 	case "presets":
-		for _, p := range config.ListPresets(userPresets, presets.FS) {
-			fmt.Printf("%-24s %s\n", p.Name, p.Source)
-		}
-		fmt.Fprintf(os.Stderr, "(your presets folder: %s)\n", userPresets)
-		return nil
+		return presetsCmd(rest, userPresets, find)
 	case "version":
 		fmt.Println("burrow", version)
 		return nil
 	default:
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
+	}
+}
+
+// presetsCmd lists, searches and describes the user's presets. A shared index of published
+// presets is planned (roadmap 0.4); until then this is the user's presets folder.
+func presetsCmd(args []string, dir string, find func(string) (*config.Preset, error)) error {
+	sub := "list"
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	all, listErr := config.ListPresets(dir)
+	switch {
+	case sub == "list" && len(args) == 0:
+	case sub == "search" && len(args) == 1:
+		all = config.SearchPresets(all, args[0])
+	case sub == "info" && len(args) == 1:
+		p, err := find(args[0])
+		if err != nil {
+			return err
+		}
+		printPreset(os.Stdout, p)
+		return nil
+	default:
+		return errors.New("usage: burrow presets [list | search TERM | info PRESET]")
+	}
+	for _, p := range all {
+		fmt.Printf("%-20s %s\n", p.Name, p.Description)
+	}
+	fmt.Fprintf(os.Stderr, "(presets folder: %s)\n", dir)
+	return listErr
+}
+
+func printPreset(w io.Writer, p *config.Preset) {
+	ws := string(p.WorkspaceMode)
+	if p.WorkspaceMode == config.WorkspaceInherit {
+		ws += " (without a sandbox: " + string(p.WorkspaceFallback) + ")"
+	}
+	nw := string(p.Network)
+	if p.Network == config.NetworkInherit {
+		nw += " (without a sandbox: " + string(p.NetworkFallback) + ")"
+	}
+	rows := [][2]string{
+		{"name", p.Name},
+		{"description", p.Description},
+		{"source", p.Source},
+		{"image", p.Image},
+		{"workspace", ws},
+		{"network", nw},
+		{"allow", strings.Join(p.Allow, ", ")},
+		{"run as", p.RunAs},
+		{"engine", string(p.Engine)},
+		{"capabilities", strings.Join(p.CapAdd, ", ")},
+		{"env", strings.Join(p.Env, ", ")},
+		{"args", strings.Join(p.Args, " ")},
+		{"memory", p.Memory},
+	}
+	for _, c := range p.Caches {
+		rows = append(rows, [2]string{"cache", c.Volume + " at " + c.Path + " (" + c.Mode + ")"})
+	}
+	for _, r := range rows {
+		if r[1] != "" {
+			_, _ = fmt.Fprintf(w, "%-13s %s\n", r[0]+":", r[1])
+		}
 	}
 }
 

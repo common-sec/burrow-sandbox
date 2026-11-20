@@ -16,19 +16,19 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/common-sec/burrow-sandbox/internal/config"
 	"github.com/common-sec/burrow-sandbox/internal/podman"
+	"github.com/common-sec/burrow-sandbox/internal/proxy"
 )
 
 const (
-	// EgressNetwork is the network the proxy (and only the proxy) uses to reach the outside.
-	EgressNetwork = "podman"
-	proxyPort     = "3128"
-	labelEnv      = "burrow.env"
-	labelKind     = "burrow.kind"
+	proxyPort = "3128"
+	labelEnv  = "burrow.env"
+	labelKind = "burrow.kind"
 )
 
 // Hardening applied to everything burrow starts (SB2). --http-proxy=false: podman otherwise copies
@@ -46,6 +46,10 @@ type Manager struct {
 func netName(env string) string     { return "burrow-" + env }
 func sandboxName(env string) string { return "burrow-" + env }
 func proxyName(base string) string  { return base + "-proxy" }
+
+// egressName is the proxy's own way out: a normal network that only this proxy (and, for a
+// sandbox, its port forwarders) join, so proxies of different sandboxes never share a network.
+func egressName(base string) string { return base + "-egress" }
 func homeVolume(env string) string  { return "burrow-" + env + "-home" }
 
 // Up creates a sandbox: internal network, proxy, persistent container. `burrow up` and
@@ -94,15 +98,20 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 	return nil
 }
 
-// startProxy creates an internal network and its proxy, and returns the proxy's address on it.
-// env is the owning sandbox ("" for a tool run without one).
+// startProxy creates an internal network, a dedicated egress network and the proxy that joins
+// both, and returns the proxy's address on the internal one. env is the owning sandbox ("" for a
+// tool run without one).
 func (m *Manager) startProxy(ctx context.Context, env, net, image string, allow []string) (string, error) {
 	nargs := append(append([]string{"network", "create", "--internal", "--disable-dns"}, envLabel(env)...), net)
 	if _, err := m.Podman.Output(ctx, nargs...); err != nil {
 		return "", err
 	}
+	eargs := append(append([]string{"network", "create"}, envLabel(env)...), egressName(net))
+	if _, err := m.Podman.Output(ctx, eargs...); err != nil {
+		return "", err
+	}
 	name := proxyName(net)
-	args := append([]string{"run", "-d", "--name", name, "--network", EgressNetwork}, envLabel(env)...)
+	args := append([]string{"run", "-d", "--name", name, "--network", egressName(net)}, envLabel(env)...)
 	args = append(args, "--label", labelKind+"=proxy",
 		"--read-only", "--user", "65532:65532", "--memory", "64m", "--pids-limit", "64")
 	args = append(args, hardening...)
@@ -163,6 +172,7 @@ func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) []string {
 	f = append(f, hardening...)
 	f = append(f, engineFlags(e.Engine)...)
 	f = append(f, proxyEnv(proxyIP)...)
+	f = append(f, envFlags(e.Env)...)
 	if e.WorkspaceMode != config.WorkspaceNone {
 		f = append(f, "-v", e.Workspace+":/work:"+string(e.WorkspaceMode), "-w", "/work")
 		// The sandbox file must not be writable from inside: the agent would widen its own
@@ -173,6 +183,14 @@ func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) []string {
 	}
 	if e.Memory != "" {
 		f = append(f, "--memory", e.Memory)
+	}
+	return f
+}
+
+func envFlags(env []string) []string {
+	var f []string
+	for _, kv := range env {
+		f = append(f, "-e", kv)
 	}
 	return f
 }
@@ -221,92 +239,164 @@ func (m *Manager) tty() []string {
 	return nil
 }
 
-// Exec runs a preset as a one-off tool and waits for it. With a sandbox (name != "") the tool is
-// the sandbox's sibling: it sees the sandbox's workspace and, with NETWORK=inherit, gets the
-// sandbox's allowlist through its own proxy; it never gets more than the sandbox has. Without a
-// sandbox, workspace is the folder to mount, and inherit falls back to the narrowest setting
-// (workspace read-only, no network).
-func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Preset, extra []string) (err error) {
-	env, proxyImage := "", config.DefaultProxyImage
-	wsMode, network, allow := p.WorkspaceMode, p.Network, p.Allow
-	if name != "" {
-		e, err := m.loadEnv(name)
-		if err != nil {
-			return err
-		}
-		env, proxyImage, workspace = e.Name, e.ProxyImage, e.Workspace
-		if wsMode == config.WorkspaceInherit {
-			wsMode = e.WorkspaceMode
-		}
-		if network == config.NetworkInherit {
-			network, allow = config.NetworkProxy, e.Allow
-		}
-		if wsMode == config.WorkspaceRW && e.WorkspaceMode != config.WorkspaceRW {
-			return fmt.Errorf("preset %s wants the workspace read-write, sandbox %s does not have it", p.Name, e.Name)
-		}
-		if wsMode != config.WorkspaceNone && e.WorkspaceMode == config.WorkspaceNone {
-			return fmt.Errorf("preset %s needs the workspace, sandbox %s has none", p.Name, e.Name)
-		}
-	} else {
-		if wsMode == config.WorkspaceInherit {
-			wsMode = config.WorkspaceRO
-		}
-		if network == config.NetworkInherit {
-			network = config.NetworkNone
-		}
-	}
-	if wsMode != config.WorkspaceNone {
-		if err := config.CheckPath("workspace", workspace); err != nil {
-			return err
-		}
-		if st, err := os.Stat(workspace); err != nil || !st.IsDir() {
-			return fmt.Errorf("workspace %s: not a folder", workspace)
-		}
+// ExecOptions change how a tool runs.
+type ExecOptions struct {
+	// Strict caps the tool by its sandbox: no more workspace access, no host outside the
+	// sandbox's allowlist, no added capabilities. Also on when the sandbox file says STRICT=true.
+	Strict bool
+}
+
+// Exec runs a preset as a one-off tool and waits for it. The tool is a sibling of the sandbox, not
+// a process inside it: it gets exactly what its preset asks for (the preset is the least privilege
+// the tool needs), with its own user, mounts and proxy. Where the preset says inherit, it takes the
+// sandbox's setting; without a sandbox (name == ""), or when the sandbox has nothing to inherit,
+// it takes the preset's fallback (inherit:MODE; ro and none by default). workspace is the folder
+// to mount when there is no sandbox.
+func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Preset, extra []string, o ExecOptions) (err error) {
+	r, err := m.resolveTool(name, workspace, p, o)
+	if err != nil {
+		return err
 	}
 	id, err := randomID()
 	if err != nil {
 		return err
 	}
-	base := "burrow-" + def(env, "exec") + "-" + p.Name + "-" + id
-	args := append([]string{"run", "--rm", "-i", "--name", base}, envLabel(env)...)
+	base := "burrow-" + def(r.env, "exec") + "-" + p.Name + "-" + id
+	args := append([]string{"run", "--rm", "-i", "--name", base}, envLabel(r.env)...)
 	args = append(args, "--label", labelKind+"=tool", "--user", p.RunAs, "--read-only", "--tmpfs", "/tmp",
 		"--pids-limit", "512")
 	args = append(args, m.tty()...)
 	args = append(args, hardening...)
+	for _, c := range p.CapAdd {
+		args = append(args, "--cap-add", c)
+	}
 	args = append(args, engineFlags(p.Engine)...)
-	switch network {
+	switch r.network {
 	case config.NetworkNone:
 		args = append(args, "--network", "none")
 	case config.NetworkProxy:
 		defer func() { err = errors.Join(err, m.removeRun(context.WithoutCancel(ctx), base)) }()
-		ip, perr := m.startProxy(ctx, env, base, proxyImage, allow)
+		ip, perr := m.startProxy(ctx, r.env, base, r.proxyImage, r.allow)
 		if perr != nil {
 			return perr
 		}
 		args = append(args, "--network", base)
 		args = append(args, proxyEnv(ip)...)
 	default:
-		return fmt.Errorf("preset %s: NETWORK %q", p.Name, network)
+		return fmt.Errorf("preset %s: NETWORK %q", p.Name, r.network)
 	}
-	if wsMode != config.WorkspaceNone {
+	args = append(args, envFlags(p.Env)...)
+	if r.wsMode != config.WorkspaceNone {
 		// Map the host user to the tool's own user, so the tool can read the user's files (and
 		// write them, if rw) without making them world-readable. Inside, it is still its own uid.
 		uid, gid, _ := strings.Cut(p.RunAs, ":")
 		args = append(args, "--userns", "keep-id:uid="+uid+",gid="+gid,
-			"-v", workspace+":/work:"+string(wsMode), "-w", "/work")
+			"-v", r.workspace+":/work:"+string(r.wsMode), "-w", "/work")
 	}
-	if c := p.Cache; c != nil {
+	for _, c := range p.Caches {
 		mode := c.Mode
 		if mode == "rw" {
 			mode = "rw,U" // the volume belongs to the preset's user, so the tool can update it
 		}
-		args = append(args, "-v", "burrow-cache-"+c.Volume+":"+c.Path+":"+mode)
+		args = append(args, "-v", CacheVolume(r.env, c.Volume)+":"+c.Path+":"+mode)
 	}
 	if p.Memory != "" {
 		args = append(args, "--memory", p.Memory)
 	}
 	args = append(append(append(args, p.Image), p.Args...), extra...)
 	return m.Podman.Attach(ctx, args...)
+}
+
+// CacheVolume is the podman volume of a cache: scoped to the sandbox, so tools of other sandboxes
+// (or run without one: scope "exec", a name reserved for this) cannot read or poison it.
+// The "_" separator cannot occur in sandbox names, so one sandbox's prefix never matches another's.
+func CacheVolume(env, name string) string { return "burrow-cache-" + def(env, "exec") + "_" + name }
+
+type toolRun struct {
+	env, proxyImage, workspace string
+	wsMode                     config.WorkspaceMode
+	network                    config.NetworkMode
+	allow                      []string
+}
+
+// resolveTool turns a preset's modes into what the tool gets (see Exec).
+func (m *Manager) resolveTool(name, workspace string, p *config.Preset, o ExecOptions) (*toolRun, error) {
+	r := &toolRun{
+		proxyImage: config.DefaultProxyImage, workspace: workspace,
+		wsMode: p.WorkspaceMode, network: p.Network, allow: p.Allow,
+	}
+	var e *config.Env
+	if name != "" {
+		var err error
+		if e, err = m.loadEnv(name); err != nil {
+			return nil, err
+		}
+		r.env, r.proxyImage = e.Name, e.ProxyImage
+		o.Strict = o.Strict || e.Strict
+		if e.WorkspaceMode != config.WorkspaceNone {
+			r.workspace = e.Workspace
+		}
+	}
+	if r.wsMode == config.WorkspaceInherit {
+		r.wsMode = p.WorkspaceFallback
+		if e != nil && e.WorkspaceMode != config.WorkspaceNone {
+			r.wsMode = e.WorkspaceMode
+		}
+	}
+	if r.network == config.NetworkInherit {
+		r.network = p.NetworkFallback
+		if e != nil {
+			r.network, r.allow = config.NetworkProxy, e.Allow // a sandbox always has a proxy
+		}
+	}
+	if o.Strict {
+		if err := checkStrict(e, p, r); err != nil {
+			return nil, fmt.Errorf("strict mode: preset %s: %w", p.Name, err)
+		}
+	}
+	if r.wsMode != config.WorkspaceNone {
+		if err := config.CheckPath("workspace", r.workspace); err != nil {
+			return nil, err
+		}
+		if st, err := os.Stat(r.workspace); err != nil || !st.IsDir() {
+			return nil, fmt.Errorf("workspace %s: not a folder", r.workspace)
+		}
+	}
+	return r, nil
+}
+
+// checkStrict refuses a tool that would get more than its sandbox (e is nil without a sandbox:
+// then only the added capabilities are refused).
+func checkStrict(e *config.Env, p *config.Preset, r *toolRun) error {
+	if len(p.CapAdd) > 0 {
+		return fmt.Errorf("asks for capabilities %v", p.CapAdd)
+	}
+	if e == nil {
+		return nil
+	}
+	if r.wsMode == config.WorkspaceRW && e.WorkspaceMode != config.WorkspaceRW {
+		return fmt.Errorf("wants the workspace read-write, sandbox %s does not have it", e.Name)
+	}
+	if r.wsMode != config.WorkspaceNone && e.WorkspaceMode == config.WorkspaceNone {
+		return fmt.Errorf("needs the workspace, sandbox %s has none", e.Name)
+	}
+	if r.network == config.NetworkProxy {
+		sb := proxy.Policy{Hosts: e.Allow}
+		for _, h := range r.allow {
+			if !coveredBy(sb, h) {
+				return fmt.Errorf("allows %s, which sandbox %s does not", h, e.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// coveredBy reports whether every host the pattern h matches is allowed by the sandbox's policy.
+func coveredBy(sb proxy.Policy, h string) bool {
+	if suffix, ok := strings.CutPrefix(h, "*."); ok {
+		return slices.Contains(sb.Hosts, h) || slices.Contains(sb.Hosts, "*."+suffix)
+	}
+	return sb.Allowed(h, 443)
 }
 
 func def(v, d string) string {
@@ -319,11 +409,14 @@ func def(v, d string) string {
 func (m *Manager) removeRun(ctx context.Context, base string) error {
 	_, err1 := m.Podman.Output(ctx, "rm", "-f", "--ignore", proxyName(base))
 	_, err2 := m.Podman.Output(ctx, "network", "rm", "-f", base)
-	return errors.Join(err1, err2)
+	_, err3 := m.Podman.Output(ctx, "network", "rm", "-f", egressName(base))
+	return errors.Join(err1, err2, err3)
 }
 
-// Port publishes a sandbox port on 127.0.0.1 of the host after the sandbox started (R9). A
-// forwarder container joins the sandbox's internal network and relays one port, nothing else.
+// Port publishes a sandbox port on 127.0.0.1 of the host after the sandbox started (R9). Podman
+// cannot add a published port to a running container, so a forwarder container does it: it is
+// published with -p 127.0.0.1:HOST:PORT on the sandbox's egress network, joins the sandbox's
+// internal network, and relays that one port to the sandbox's address, nothing else.
 func (m *Manager) Port(ctx context.Context, name string, ctrPort, hostPort int) error {
 	e, err := m.loadEnv(name)
 	if err != nil {
@@ -341,7 +434,7 @@ func (m *Manager) Port(ctx context.Context, name string, ctrPort, hostPort int) 
 	fwd := fmt.Sprintf("burrow-%s-fwd-%d", e.Name, ctrPort)
 	cp := strconv.Itoa(ctrPort)
 	args := []string{
-		"run", "-d", "--name", fwd, "--network", EgressNetwork,
+		"run", "-d", "--name", fwd, "--network", egressName(netName(e.Name)),
 		"-p", "127.0.0.1:" + strconv.Itoa(hostPort) + ":" + cp,
 		"--label", labelEnv + "=" + e.Name, "--label", labelKind + "=forward",
 		"--read-only", "--user", "65532:65532", "--memory", "32m", "--pids-limit", "32",
@@ -380,7 +473,17 @@ func (m *Manager) Down(ctx context.Context, name string, purge bool) error {
 		}
 	}
 	if purge {
-		if _, err := m.Podman.Output(ctx, "volume", "rm", "-f", homeVolume(name)); err != nil {
+		vols, err := m.Podman.Output(ctx, "volume", "ls", "--format", "{{.Name}}")
+		if err != nil {
+			return err
+		}
+		rm := []string{homeVolume(name)}
+		for _, v := range strings.Fields(vols) {
+			if strings.HasPrefix(v, CacheVolume(name, "")) {
+				rm = append(rm, v) // the sandbox's caches
+			}
+		}
+		if _, err := m.Podman.Output(ctx, append([]string{"volume", "rm", "-f"}, rm...)...); err != nil {
 			return err
 		}
 		return os.Remove(m.envPath(name))
