@@ -1,0 +1,11 @@
+# Trivy scan of the sandbox's workspace (or, without a sandbox, the current folder): no network,
+# workspace read-only, the sandbox's trivy cache as an overlay (Trivy may write to it; the writes are thrown away with the container).
+# Only sees a database that trivy-db wrote for the same sandbox.
+#   burrow exec trivy-scan  (in a folder with a burrow.sandbox, or -s NAME)
+NAME=trivy-scan
+DESCRIPTION=Trivy offline scan of the workspace, no network (test preset)
+IMAGE=localhost/burrow-test-trivy:dev
+WORKSPACE_MODE=ro
+NETWORK=none
+CACHE=trivy:/cache:O
+ARGS=fs --cache-dir /cache --skip-db-update --skip-java-db-update --skip-check-update --offline-scan --scanners vuln --skip-version-check --disable-telemetry --quiet /work

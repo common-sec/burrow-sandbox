@@ -1,0 +1,33 @@
+# Tools for working on burrow, pinned to exact versions. mise.lock records the checksum of every
+# download per platform (`make lock`), so a substituted file fails to install.
+# Update: change a version here, run `make lock`, review the diff. New versions only after a
+# 7-day cooldown (minimum_release_age below, same as Dependabot's cooldown).
+# Commands live in the Makefile (`make help`); mise only provides the pinned tools.
+
+[settings]
+# Refuse any tool version released less than 7 days ago.
+# Security fixes skip the cooldown, one command at a time, never by changing this file:
+#   1. bump the version below (e.g. go = "1.27.5" for a Go security release);
+#   2. MISE_MINIMUM_RELEASE_AGE=0d make lock tools check   (mise reads every setting from MISE_<NAME>);
+#   3. commit mise.toml and mise.lock, naming the advisory (GO-..., CVE-...) in the message.
+# Go modules (go.mod/go.sum) get security fixes from Dependabot security updates, which have no
+# cooldown. The same applies to images and Actions.
+minimum_release_age = "7d"
+# Install only what mise.lock pins (with checksums); fail instead of resolving something new.
+locked = true
+# Verify GitHub artifact attestations and SLSA provenance where a tool publishes them.
+github_attestations = true
+slsa = true
+# (paranoid is a global-only setting: mise ignores it here. Set it in ~/.config/mise/config.toml.)
+
+[tools]
+go = "1.27.4"
+"aqua:golangci/golangci-lint" = "2.15.0"
+# govulncheck is pinned in go.mod (tool directive) and go.sum instead: hashes for it and every
+# module it uses, kept current by Dependabot. Run with `go tool govulncheck` (make vuln).
+
+[env]
+# Static binaries, no cgo, reproducible paths; module downloads only from the checksum database.
+CGO_ENABLED = "0"
+GOFLAGS = "-trimpath -mod=readonly"
+GOTOOLCHAIN = "local"

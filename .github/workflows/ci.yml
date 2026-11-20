@@ -1,0 +1,66 @@
+name: CI
+
+# CI runs the same Makefile targets a developer runs locally (local first). Nothing but GitHub's
+# own checkout action is used, pinned by commit SHA; mise is installed from a checksum-verified
+# release (scripts/install-mise.sh), and every tool from mise.lock.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, test, vuln, build, forwarder
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mise (pinned, checksum verified)
+        run: sh scripts/install-mise.sh "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: mise.lock is committed and matches mise.toml
+        run: make lock-check
+      - name: Install tools from mise.lock
+        run: make tools
+      - run: make check
+      - name: Checksums of this build
+        run: cat dist/SHA256SUMS
+
+  scan:
+    name: scan (${{ matrix.scan }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        scan: [secrets, sast, deps, images]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # full history, so the secrets scan sees every commit
+      # `images` builds the proxy and forwarder images first, then scans them for
+      # vulnerabilities and secrets.
+      - name: ${{ matrix.scan }} (rootless podman, same target as `make scan`)
+        run: make scan-${{ matrix.scan }}
+
+  e2e:
+    name: end-to-end on rootless Podman
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mise (pinned, checksum verified)
+        run: sh scripts/install-mise.sh "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: make tools
+      - run: podman --version
+      - run: make e2e

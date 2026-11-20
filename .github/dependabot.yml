@@ -1,0 +1,113 @@
+# Dependabot keeps pinned dependencies current (D1). Checked every day.
+# - Version updates wait for a 7-day cooldown, the same as mise's minimum_release_age: a release
+#   is only proposed once it has been public for a week. Security updates skip the cooldown.
+# - Minor and patch updates come as ONE grouped PR per ecosystem; majors one PR each, to review.
+# - Security updates come grouped per ecosystem too. They need "Dependabot security updates"
+#   switched on in the repository (Settings > Advanced Security); this file only shapes the PRs.
+# - Review: the security team, through .github/CODEOWNERS (Dependabot's `reviewers` option was
+#   removed in May 2025 in favour of code owners).
+# - One PR across ecosystems (multi-ecosystem-groups) is not used: as documented it cannot be
+#   limited to minor and patch, so majors would hide inside it (docs/decisions/0006).
+# Not covered by Dependabot: mise.toml (update by hand, docs/DEVELOPMENT.md "Updating pins"),
+# scripts/install-mise.sh (.github/workflows/update-pins.yml opens a PR) and the pinned image
+# constants in Go tests (by hand).
+version: 2
+
+updates:
+  # Go modules (go.sum).
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(go)"
+
+  # Rust forwarder (crates/burrow-forward/Cargo.lock). No dependencies today; this catches any
+  # that are added and keeps the lockfile honest.
+  - package-ecosystem: cargo
+    directory: /crates/burrow-forward
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(cargo)"
+
+  # Base images, pinned by tag + digest: the proxy and forwarder images, and the images of the
+  # test presets (test/images/<name>/Dockerfile, one per preset so each can be updated here).
+  - package-ecosystem: docker
+    directories:
+      - /packaging/proxy
+      - /packaging/forward
+      - /test/images/alpine
+      - /test/images/curl
+      - /test/images/trivy
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(docker)"
+
+  # Scanner images (compose.yaml, pinned by tag + digest).
+  # Remove this entry when burrow replaces compose.yaml (scanners as burrow presets).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(compose)"
+
+  # GitHub Actions (pinned by commit SHA).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(actions)"
