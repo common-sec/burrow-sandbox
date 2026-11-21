@@ -66,6 +66,22 @@ below before putting any real work in it.
 5. Visibility (WSL): from another WSL distro, can you see the sandbox's processes, files or ports?
 6. Rights needed, and what an enterprise policy blocks.
 
+## Known issues
+
+**`go: RLock /work/go.mod: function not implemented` (and other tools that lock files).** The
+folder a Podman machine shares from the host (9p with Hyper-V, virtiofs on macOS) does not
+support `flock` locks, and Go locks `go.mod` before reading it, with no setting to skip it. This
+is in the hypervisor's file sharing, not in burrow or the container, so a flag cannot switch it
+on. *Which share supports which lock calls is unverified; to record per backend (step 2 above).*
+Until burrow can keep the workspace in a volume inside the machine (roadmap 0.2):
+- to build burrow itself: `sh scripts/build-in-container.sh` (DEVELOPMENT.md), which never uses the share;
+- for your own projects: clone into the sandbox's home (`burrow shell dev -- git clone ... ~/src`)
+  and build there, or build on the host.
+
+Similar reports: [golang/go#37461](https://github.com/golang/go/issues/37461),
+[podman discussion #22752](https://github.com/containers/podman/discussions/22752),
+[lima#971](https://github.com/lima-vm/lima/issues/971).
+
 ## WSL hardening (E1, to build)
 
 A machine image of our own: `/etc/wsl.conf` with `[automount] enabled=false`, `mountFsTab=false`,

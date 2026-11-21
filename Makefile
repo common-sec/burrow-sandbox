@@ -6,7 +6,7 @@ MISE ?= mise
 RUN = $(MISE) exec --
 LOCK_PLATFORMS = linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64
 
-.PHONY: help tools lock lock-check fmt lint test vuln build forward check scan scan-secrets \
+.PHONY: help tools lock lock-check fmt lint test vuln build build-container forward check scan scan-secrets \
 	scan-sast scan-deps scan-images images test-images e2e hooks clean
 
 help: ## list the targets
@@ -38,6 +38,9 @@ vuln: ## known vulnerabilities in reachable Go code (govulncheck, pinned in go.m
 
 build: ## static, reproducible binaries for every platform into dist/, with SHA256SUMS
 	$(RUN) sh scripts/build.sh
+
+build-container: ## the same binaries built inside a container: needs only Podman, no Go or mise
+	sh scripts/build-in-container.sh
 
 forward: ## the Rust forwarder: rustfmt, clippy, tests and build, inside its pinned build image
 	sh scripts/images.sh forward

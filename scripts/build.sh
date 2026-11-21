@@ -4,7 +4,7 @@
 # depend only on the source.
 set -eu
 cd "$(dirname "$0")/.."
-version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+version=${BURROW_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 rm -rf dist && mkdir -p dist
 for target in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 windows/arm64; do
   os=${target%/*}; arch=${target#*/}; ext=; [ "$os" = windows ] && ext=.exe

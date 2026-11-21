@@ -68,7 +68,8 @@ Details and the threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Try it
 
 You need Podman 4.9 or newer (on Windows and macOS: a Podman machine), `make` and
-[mise](https://mise.jdx.dev).
+[mise](https://mise.jdx.dev). With only Podman, `sh scripts/build-in-container.sh` builds the
+binaries into `dist/` ([DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 
 burrow runs **presets**, not images: a preset is a pinned image plus the settings it is safe to
 run with. Presets come from your presets folder (`burrow presets` prints it). Published, prebuilt

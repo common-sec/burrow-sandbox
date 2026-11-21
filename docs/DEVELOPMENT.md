@@ -14,6 +14,23 @@
 Podman 4.9+ is needed for `images` and `e2e` (rootless; on Windows and macOS a Podman machine).
 On Windows, run `make` from WSL or Git Bash.
 
+## Building with only Podman (no Go, no mise)
+
+`sh scripts/build-in-container.sh` (or `make build-container`) builds the binaries for every
+platform inside a pinned Go image (`packaging/burrow/Dockerfile`) and copies them to `dist/`.
+The source goes in as the build context, which Podman copies into the machine, so this also works
+where the shared folder of a Podman machine has no file locking (see WINDOWS.md, "Known issues").
+Without `sh` (PowerShell):
+
+```powershell
+podman build -f packaging/burrow/Dockerfile -t localhost/burrow-dist:dev .
+$c = podman create localhost/burrow-dist:dev /none
+podman cp "${c}:/dist" ./dist; podman rm $c
+```
+
+The binaries match `make build` except for the git stamp Go embeds (`vcs.*` in
+`go version -m`), because the build context has no `.git`; the version string is passed in.
+
 ## Make targets (the same locally and in CI)
 
 The Makefile owns every command ([decision 0006](decisions/0006-make-agents-md-dependabot.md));
@@ -28,6 +45,7 @@ mise only provides the tools. `make help` lists them.
 | `make test-images` | build the images of the test presets (`test/images/<name>/Dockerfile` → `localhost/burrow-test-<name>:dev`) |
 | `make e2e` | end-to-end checks on real rootless Podman ([TESTING.md](TESTING.md)) |
 | `make build` | static binaries for six platforms in `dist/`, with `SHA256SUMS` |
+| `make build-container` | the same, built inside a container: needs only Podman |
 | `make lock` / `make lock-check` | update `mise.lock` / fail if it is missing or stale (CI) |
 
 ## Rules

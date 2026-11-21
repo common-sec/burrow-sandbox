@@ -64,3 +64,5 @@ jobs:
       - run: make tools
       - run: podman --version
       - run: make e2e
+      - name: Build with only Podman (no Go on the host needed)
+        run: make build-container

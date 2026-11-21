@@ -40,7 +40,8 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ○ | `burrow doctor`: checks the backend (rootless, machine provider, WSL hardening, SELinux, cgroups) and says what is missing | O7, D5 |
 | ○ | Podman machine on Linux too (provider, and the fallback without KVM) | R2 |
 | ○ | macOS discovery: try the Podman machine (applehv and libkrun providers), find the security issues (shared folders, ports, what the VM sees) and recommend an install and usage path | D6 |
-| ○ | Workspace mounts on SELinux hosts (relabelling) and on machine shares (9p, virtiofs) | R2 |
+| ○ | Workspace mounts on SELinux hosts (relabelling) and on machine shares (9p, virtiofs): file locking is missing on the shares (Go fails with `RLock go.mod: function not implemented`); option: a workspace kept in a volume inside the machine and synced with the host folder | R2, D6 |
+| ✓ | Build burrow with only Podman (`scripts/build-in-container.sh`), no Go or mise on the host | D6, O7 |
 
 ## 0.3 The real proxy
 
