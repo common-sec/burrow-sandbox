@@ -74,6 +74,7 @@ type Env struct {
 	Allow         []string      // hosts the sandbox's proxy lets through
 	Engine        Engine
 	RunAs         string // uid:gid inside the sandbox; the host user is mapped to it (keep-id)
+	UserFlag      bool   // RunAs came from --user (may be root), not from a preset or file
 	ProxyImage    string
 	ForwardImage  string
 	Memory        string   // podman --memory, optional
@@ -178,7 +179,7 @@ func unquote(v string) (string, error) {
 
 // envKeys are the keys of a stored sandbox (state, written by burrow).
 var envKeys = keys("NAME", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "ALLOW", "ENGINE", "RUN_AS",
-	"PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "DEFINITION")
+	"PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "DEFINITION", "USER_FLAG")
 
 // sandboxKeys are the keys of a sandbox file (`burrow up`).
 var sandboxKeys = keys("NAME", "PRESET", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "NETWORK", "ALLOW",
@@ -229,6 +230,9 @@ func LoadEnv(path string) (*Env, error) {
 	if err2 != nil {
 		return nil, err2
 	}
+	if e.UserFlag, err2 = parseBool("USER_FLAG", m["USER_FLAG"]); err2 != nil {
+		return nil, err2
+	}
 	return e, e.Validate()
 }
 
@@ -242,7 +246,7 @@ type Overrides struct {
 	Name      string
 	Image     string
 	Workspace string // absolute
-	RunAs     string // --user: uid:gid, checked like RUN_AS
+	RunAs     string // --user: uid:gid; unlike RUN_AS it may be root (exception in decision 0011)
 }
 
 // NewSandbox resolves a sandbox from a preset (may be nil), a sandbox file's keys (may be nil;
@@ -266,7 +270,7 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 			m[k] = v
 		}
 	}
-	for k, v := range map[string]string{"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace, "RUN_AS": o.RunAs} {
+	for k, v := range map[string]string{"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace} {
 		if v != "" {
 			m[k] = v
 		}
@@ -292,6 +296,9 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 	if e.Strict, err = parseBool("STRICT", m["STRICT"]); err != nil {
 		return nil, err
 	}
+	if o.RunAs != "" {
+		e.RunAs, e.UserFlag = o.RunAs, true
+	}
 	if e.WorkspaceMode != WorkspaceNone {
 		ws := def(m["WORKSPACE"], ".")
 		if !filepath.IsAbs(ws) {
@@ -312,7 +319,7 @@ func (e *Env) Validate() error {
 		errs = append(errs, errors.New(`NAME "exec" is reserved (tools run without a sandbox)`))
 	}
 	errs = append(errs, checkImage("IMAGE", e.Image), checkImage("PROXY_IMAGE", e.ProxyImage),
-		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), CheckRunAs(e.RunAs),
+		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), checkEnvUser(e),
 		checkHosts(e.Allow), checkMemory(e.Memory), checkEnv(e.Env))
 	switch e.WorkspaceMode {
 	case WorkspaceRW, WorkspaceRO:
@@ -583,8 +590,32 @@ func checkEngine(e Engine) error {
 	return nil
 }
 
-// CheckRunAs accepts uid:gid with a uid other than 0: burrow never runs anything as root. It
-// checks RUN_AS in presets and sandbox files and the --user flag.
+// checkEnvUser: RUN_AS from a preset or sandbox file is never root; one given with --user may be.
+func checkEnvUser(e *Env) error {
+	if e.UserFlag {
+		return CheckUser(e.RunAs)
+	}
+	return CheckRunAs(e.RunAs)
+}
+
+// CheckUser checks the --user flag: uid:gid, root (uid 0) included. Root is only ever asked for
+// on the command line by the person running burrow, never by a preset or a sandbox file (which
+// the agent could write), and keeps no capabilities and no-new-privileges (decision 0011).
+func CheckUser(s string) error {
+	if !runAsRe.MatchString(s) {
+		return fmt.Errorf("--user %q: uid:gid", s)
+	}
+	return nil
+}
+
+// IsRoot reports whether a checked uid:gid runs as uid 0.
+func IsRoot(s string) bool {
+	uid, _ := strconv.Atoi(strings.SplitN(s, ":", 2)[0])
+	return uid == 0
+}
+
+// CheckRunAs accepts uid:gid with a uid other than 0: a preset or sandbox file never runs
+// anything as root.
 func CheckRunAs(s string) error {
 	if !runAsRe.MatchString(s) {
 		return fmt.Errorf("RUN_AS %q: uid:gid", s)
@@ -634,6 +665,9 @@ func (e *Env) String() string {
 	w("ENV", strings.Join(e.Env, ","))
 	if e.Strict {
 		w("STRICT", "true")
+	}
+	if e.UserFlag {
+		w("USER_FLAG", "true")
 	}
 	w("DEFINITION", e.Definition)
 	return b.String()

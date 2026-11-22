@@ -205,7 +205,8 @@ func TestFindAndListPresets(t *testing.T) {
 	}
 }
 
-// U22: --user wins over RUN_AS and is checked like it (never root).
+// U22: --user wins over RUN_AS and may be root; RUN_AS from a preset or file never may, and a
+// stored sandbox keeps where its user came from.
 func TestNewSandboxUserOverride(t *testing.T) {
 	dir := t.TempDir()
 	p := &Preset{Name: "a", raw: map[string]string{"IMAGE": pinned, "RUN_AS": "1000:1000", "WORKSPACE_MODE": "none"}}
@@ -215,8 +216,8 @@ func TestNewSandboxUserOverride(t *testing.T) {
 	}{
 		{"", "1000:1000", true},
 		{"2000:2000", "2000:2000", true},
-		{"0:0", "", false},
-		{"0:1000", "", false},
+		{"0:0", "0:0", true}, // root from --user only (decision 0011)
+		{"root", "", false},
 		{"1000:1000\n", "", false},
 	} {
 		e, err := NewSandbox(p, nil, dir, Overrides{Name: "tt", RunAs: c.user})
@@ -229,5 +230,35 @@ func TestNewSandboxUserOverride(t *testing.T) {
 		if c.ok && e.RunAs != c.want {
 			t.Fatalf("--user %q: RUN_AS %s, want %s", c.user, e.RunAs, c.want)
 		}
+	}
+}
+
+func TestRootOnlyFromTheFlag(t *testing.T) {
+	dir := t.TempDir()
+	p := &Preset{Name: "a", raw: map[string]string{"IMAGE": pinned, "RUN_AS": "0:0", "WORKSPACE_MODE": "none"}}
+	if _, err := NewSandbox(p, nil, dir, Overrides{Name: "tt"}); err == nil {
+		t.Fatal("RUN_AS=0:0 in a preset was accepted")
+	}
+	if _, err := NewSandbox(nil, map[string]string{"IMAGE": pinned, "RUN_AS": "00:0", "WORKSPACE_MODE": "none"}, dir, Overrides{Name: "tt"}); err == nil {
+		t.Fatal("RUN_AS=00:0 in a sandbox file was accepted")
+	}
+	e, err := NewSandbox(nil, map[string]string{"IMAGE": pinned, "WORKSPACE_MODE": "none"}, dir, Overrides{Name: "tt", RunAs: "0:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "tt.env")
+	if err := os.WriteFile(path, []byte(e.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	back, err := LoadEnv(path)
+	if err != nil || back.RunAs != "0:0" || !back.UserFlag {
+		t.Fatalf("stored root sandbox: %+v, %v", back, err)
+	}
+	// A stored file that says root without USER_FLAG (hand-edited) is refused.
+	if err := os.WriteFile(path, []byte(strings.ReplaceAll(e.String(), "USER_FLAG=\"true\"\n", "")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadEnv(path); err == nil {
+		t.Fatal("RUN_AS=0:0 without USER_FLAG was loaded")
 	}
 }

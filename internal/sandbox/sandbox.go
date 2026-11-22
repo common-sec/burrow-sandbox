@@ -263,8 +263,8 @@ func inside(dir, path string) (string, bool) {
 }
 
 // Shell runs a command (default: sh) inside the persistent sandbox.
-// Shell runs a command inside the sandbox, as the sandbox's RUN_AS or as user (--user, never
-// root) when set.
+// Shell runs a command inside the sandbox, as the sandbox's RUN_AS or as user (--user, root
+// allowed) when set.
 func (m *Manager) Shell(ctx context.Context, name, user string, cmd []string) error {
 	e, err := m.loadEnv(name)
 	if err != nil {
@@ -272,7 +272,7 @@ func (m *Manager) Shell(ctx context.Context, name, user string, cmd []string) er
 	}
 	var userFlag []string
 	if user != "" {
-		if err := config.CheckRunAs(user); err != nil {
+		if err := config.CheckUser(user); err != nil {
 			return fmt.Errorf("--user: %w", err)
 		}
 		userFlag = []string{"--user", user}
@@ -310,7 +310,7 @@ type ExecOptions struct {
 	// Strict caps the tool by its sandbox: no more workspace access, no host outside the
 	// sandbox's allowlist, no added capabilities. Also on when the sandbox file says STRICT=true.
 	Strict bool
-	// User runs the tool as this uid:gid instead of the preset's RUN_AS (--user). Never root.
+	// User runs the tool as this uid:gid instead of the preset's RUN_AS (--user); may be root.
 	User string
 }
 
@@ -327,7 +327,7 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 	}
 	runAs := p.RunAs
 	if o.User != "" {
-		if err := config.CheckRunAs(o.User); err != nil {
+		if err := config.CheckUser(o.User); err != nil {
 			return fmt.Errorf("--user: %w", err)
 		}
 		runAs = o.User

@@ -53,7 +53,8 @@ Usage:
         the presets in your presets folder
   burrow version
 
---user UID:GID runs as that user instead of the preset's RUN_AS (never root, uid 0).
+--user UID:GID runs as that user instead of the preset's RUN_AS. 0:0 (root) is allowed here only,
+never from a preset or sandbox file; root still has no capabilities.
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
 
 Global flags (before the command):
@@ -85,6 +86,15 @@ func hint(err error) string {
 			"`make sandbox-images` (agents, distributions); without make, see README \"Try it\""
 	}
 	return ""
+}
+
+// warnRoot says it plainly when --user asks for root (decision 0011).
+func warnRoot(user string) {
+	if user != "" && config.CheckUser(user) == nil && config.IsRoot(user) {
+		fmt.Fprintln(os.Stderr, "burrow: warning: --user "+user+" runs as root inside: no capabilities "+
+			"and no new privileges, but root can change everything in the container, and the "+
+			"workspace files it writes are yours on the host")
+	}
 }
 
 func run(argv []string) error {
@@ -143,6 +153,7 @@ func run(argv []string) error {
 		if err != nil || len(pos) != 0 {
 			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID]")
 		}
+		warnRoot(*user)
 		keys, err := config.LoadSandboxFile(*file)
 		if err != nil {
 			return err
@@ -168,6 +179,7 @@ func run(argv []string) error {
 		if err != nil || len(pos) != 1 {
 			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]")
 		}
+		warnRoot(*user)
 		p, err := find(pos[0])
 		if err != nil {
 			return err
@@ -190,6 +202,7 @@ func run(argv []string) error {
 		if err != nil || len(pos) != 1 {
 			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]")
 		}
+		warnRoot(*user)
 		if *name != "" && *ws != "" {
 			return errors.New("exec: --workspace is for a tool without a sandbox; a sandbox brings its own")
 		}
@@ -213,6 +226,7 @@ func run(argv []string) error {
 		if err != nil || len(pos) > 1 {
 			return errors.New("usage: burrow shell [NAME] [--user UID:GID] [-- CMD ARGS...]")
 		}
+		warnRoot(*user)
 		name, err := nameArg(pos)
 		if err != nil {
 			return err

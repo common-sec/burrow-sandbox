@@ -32,6 +32,10 @@ Report results as they are. If something could not run (no Podman, no network), 
 - Never weaken a default (capabilities, network, mounts, user, pinning, cooldown) to make a test
   pass. Never skip or disable a test. A change that relaxes a default needs an exception (owner,
   reason, expiry) in a decision record.
+- **Secure by default, tunable by the user** ([decision 0011](docs/decisions/0011-secure-defaults-user-overrides.md)):
+  a user may loosen a default for their environment (a flag, their presets, their sandbox file),
+  never from a place the agent can write, and burrow prints a warning whenever it runs with a
+  weakened setting. `--privileged`, `--network host` and the Podman socket stay impossible.
 - A new feature comes with its user story in [docs/FEATURES.md](docs/FEATURES.md) and the tests
   that prove it (see "Tests" below).
 - Update the threat model in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) when a change touches a

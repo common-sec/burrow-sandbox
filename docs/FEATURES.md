@@ -36,7 +36,7 @@ reviewer** checks what burrow allows.
 | U19 | As a developer, burrow tells me at once when my Podman is too old or uses the CNI backend, instead of failing inside podman. | `sandbox.TestCheckEngine`, `TestPreflightAsksPodmanInfo` |
 | U20 | As a developer, when an image I build locally is missing, burrow stops before creating anything and tells me which `make` target builds it; it never asks a "registry" on localhost for it. | `sandbox.TestImagePullPolicy`, `TestEveryRunSetsPullPolicy`, `TestUpRequiresLocalImages`, `main.TestHintForMissingLocalImage` |
 | U21 | As a developer, a `run` or `up` that fails leaves nothing behind, so I can fix the cause and run it again (no "network already exists"). | `sandbox.TestUpCleansUpAfterFailure` |
-| U22 | As a developer, I run a sandbox, a tool or a shell as another user (`--user UID:GID` on `run`, `up`, `exec`, `shell`) without editing the preset; root is never accepted. | `sandbox.TestUserFlag`, `config.TestNewSandboxUserOverride` |
+| U22 | As a developer, I run a sandbox, a tool or a shell as another user (`--user UID:GID` on `run`, `up`, `exec`, `shell`) without editing the preset; `--user 0:0` gives root (still without capabilities) with a warning, and no preset or sandbox file can ask for root. | `sandbox.TestUserFlag`, `config.TestNewSandboxUserOverride`, `config.TestRootOnlyFromTheFlag` |
 
 ## Isolation between sandboxes
 

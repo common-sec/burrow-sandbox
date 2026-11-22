@@ -441,8 +441,8 @@ func TestUpRequiresLocalImages(t *testing.T) {
 	}
 }
 
-// U22: --user runs the tool or the shell as another uid:gid, never as root, and the workspace
-// mapping follows it.
+// U22: --user runs the tool or the shell as another uid:gid, root included (decision 0011), and
+// the workspace mapping follows it; capabilities stay dropped.
 func TestUserFlag(t *testing.T) {
 	for _, c := range []struct {
 		user string
@@ -450,9 +450,9 @@ func TestUserFlag(t *testing.T) {
 	}{
 		{"2000:2000", true},
 		{"", true},      // the preset's RUN_AS
-		{"0:0", false},  // root
-		{"root", false}, // a name, and root
-		{"00:0", false}, // root written another way
+		{"0:0", true},   // root: only from --user (decision 0011)
+		{"root", false}, // a name
+		{"0", false},    // no gid
 		{"1000", false}, // no gid
 		{"1000:1000,rw", false},
 	} {
@@ -474,7 +474,9 @@ func TestUserFlag(t *testing.T) {
 			continue
 		}
 		run, sh := rec.Calls[n], rec.Calls[len(rec.Calls)-1]
-		if !has(run, "--user", c.user) || !has(run, "--userns", "keep-id:uid=2000,gid=2000") {
+		uid, gid, _ := strings.Cut(c.user, ":")
+		if !has(run, "--user", c.user) || !has(run, "--userns", "keep-id:uid="+uid+",gid="+gid) ||
+			!has(run, "--cap-drop", "ALL") || !has(run, "--security-opt", "no-new-privileges") {
 			t.Fatalf("exec --user %q: %v", c.user, run)
 		}
 		if sh[0] != "exec" || !has(sh, "--user", c.user) {
