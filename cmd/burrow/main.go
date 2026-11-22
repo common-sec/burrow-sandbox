@@ -64,12 +64,26 @@ Global flags (before the command):
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "burrow:", err)
+		if h := hint(err); h != "" {
+			fmt.Fprintln(os.Stderr, "burrow:", h)
+		}
 		var ee interface{ ExitCode() int }
 		if errors.As(err, &ee) {
 			os.Exit(ee.ExitCode())
 		}
 		os.Exit(1)
 	}
+}
+
+// hint explains the errors people hit first. burrow never pulls localhost/ images (they are built
+// locally), so a missing one ends in Podman's "image not known".
+func hint(err error) string {
+	msg := err.Error()
+	if strings.Contains(msg, "image not known") && strings.Contains(msg, "localhost/") {
+		return "the image is not built yet: run `make test-images` (alpine, curl, trivy) or " +
+			"`make sandbox-images` (agents, distributions); without make, see README \"Try it\""
+	}
+	return ""
 }
 
 func run(argv []string) error {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"path/filepath"
 	"slices"
@@ -44,5 +45,21 @@ func TestDryRunCommands(t *testing.T) {
 	}
 	if err := run([]string{"--dry-run", "presets", "info", "missing"}); err == nil {
 		t.Error("info on a missing preset: want error")
+	}
+}
+
+// U20: a missing local image ends with the command that builds it.
+func TestHintForMissingLocalImage(t *testing.T) {
+	for _, c := range []struct {
+		msg  string
+		want bool
+	}{
+		{"podman run: exit status 125: Error: localhost/burrow-test-alpine:dev: image not known", true},
+		{"podman run: exit status 125: Error: docker.io/library/alpine: image not known", false},
+		{"podman run: exit status 1: permission denied", false},
+	} {
+		if got := hint(errors.New(c.msg)) != ""; got != c.want {
+			t.Errorf("hint(%q) = %v, want %v", c.msg, got, c.want)
+		}
 	}
 }

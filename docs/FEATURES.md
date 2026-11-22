@@ -34,6 +34,7 @@ reviewer** checks what burrow allows.
 
 | U18 | As a developer, I start a sandbox with an agent already in it (`burrow run claude`, or codex, opencode, pi, hermes; or a plain ubuntu or kali), pinned and scanned, so that I do not install the agent on my machine. | `sandboxes.yml` (build, `--version` as uid 1000 with no capabilities, scan); `config.TestTestPresetsAndExample` |
 | U19 | As a developer, burrow tells me at once when my Podman is too old or uses the CNI backend, instead of failing inside podman. | `sandbox.TestCheckEngine`, `TestPreflightAsksPodmanInfo` |
+| U20 | As a developer, when an image I build locally is missing, burrow fails and tells me which `make` target builds it; it never asks a "registry" on localhost for it. | `sandbox.TestImagePullPolicy`, `TestEveryRunSetsPullPolicy`, `main.TestHintForMissingLocalImage` |
 
 ## Isolation between sandboxes
 

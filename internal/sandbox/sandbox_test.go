@@ -316,3 +316,52 @@ func TestUpRefusesRunningSandbox(t *testing.T) {
 		t.Fatal("second up of a running sandbox: want error")
 	}
 }
+
+// U20: an image the user builds (localhost/) is never pulled: a missing one fails instead of
+// asking whatever answers on localhost:443 for it. Registry images are pulled only if missing.
+func TestImagePullPolicy(t *testing.T) {
+	for _, c := range []struct{ ref, want string }{
+		{"localhost/burrow-test-alpine:dev", "--pull=never"},
+		{"docker.io/library/alpine:3@sha256:" + strings.Repeat("a", 64), "--pull=missing"},
+		{"localhost.evil.example/burrow-test-alpine:dev", "--pull=missing"}, // a registry, not local
+		{"localhost:5000/burrow-test-alpine:dev", "--pull=missing"},         // a registry on a port
+	} {
+		if got := image(c.ref); len(got) != 2 || got[0] != c.want || got[1] != c.ref {
+			t.Errorf("image(%q) = %v, want [%s %s]", c.ref, got, c.want, c.ref)
+		}
+	}
+}
+
+// Every container burrow starts names its pull policy right before its image.
+func TestEveryRunSetsPullPolicy(t *testing.T) {
+	m, rec := setup(t, config.EngineCrun)
+	p := &config.Preset{
+		Name: "scan", Image: "localhost/burrow-test-trivy:dev", WorkspaceMode: config.WorkspaceRO,
+		Network: config.NetworkNone, Engine: config.EngineCrun, RunAs: "65532:65532",
+	}
+	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Port(context.Background(), "dev", 8080, 8080); err != nil {
+		t.Fatal(err)
+	}
+	runs := 0
+	for _, c := range rec.Calls {
+		if len(c) == 0 || c[0] != "run" {
+			continue
+		}
+		runs++
+		ok := false
+		for i := 0; i+1 < len(c); i++ {
+			if (c[i] == "--pull=never" || c[i] == "--pull=missing") && image(c[i+1])[0] == c[i] {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Errorf("run without a pull policy before its image: %v", c)
+		}
+	}
+	if runs < 4 { // proxy, sandbox, tool, forwarder
+		t.Fatalf("expected the proxy, sandbox, tool and forwarder runs, got %d", runs)
+	}
+}

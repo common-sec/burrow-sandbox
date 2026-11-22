@@ -35,6 +35,16 @@ const (
 // the host's proxy variables (and any credentials in them) into every container.
 var hardening = []string{"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--http-proxy=false"}
 
+// image returns the image argument with its pull policy. A localhost/ image is one the user
+// builds (make test-images): never pull it, so a missing image is an error and not a request to
+// whatever answers as a registry on localhost:443. Other images are pulled only when missing.
+func image(ref string) []string {
+	if strings.HasPrefix(ref, "localhost/") {
+		return []string{"--pull=never", ref}
+	}
+	return []string{"--pull=missing", ref}
+}
+
 // Manager runs sandboxes and tools.
 type Manager struct {
 	Podman   podman.Runner
@@ -91,7 +101,7 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 		return err
 	}
 	args := append([]string{"run", "-d", "--name", sandboxName(e.Name)}, m.sandboxFlags(e, proxyIP)...)
-	args = append(args, e.Image, "sleep", "infinity")
+	args = append(append(args, image(e.Image)...), "sleep", "infinity")
 	if _, err := m.Podman.Output(ctx, args...); err != nil {
 		return err
 	}
@@ -101,7 +111,7 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 // startProxy creates an internal network, a dedicated egress network and the proxy that joins
 // both, and returns the proxy's address on the internal one. env is the owning sandbox ("" for a
 // tool run without one).
-func (m *Manager) startProxy(ctx context.Context, env, net, image string, allow []string) (string, error) {
+func (m *Manager) startProxy(ctx context.Context, env, net, proxyImage string, allow []string) (string, error) {
 	nargs := append(append([]string{"network", "create", "--internal", "--disable-dns"}, envLabel(env)...), net)
 	if _, err := m.Podman.Output(ctx, nargs...); err != nil {
 		return "", err
@@ -115,7 +125,7 @@ func (m *Manager) startProxy(ctx context.Context, env, net, image string, allow 
 	args = append(args, "--label", labelKind+"=proxy",
 		"--read-only", "--user", "65532:65532", "--memory", "64m", "--pids-limit", "64")
 	args = append(args, hardening...)
-	args = append(args, image, "-listen", "0.0.0.0:"+proxyPort, "-allow", strings.Join(allow, ","))
+	args = append(append(args, image(proxyImage)...), "-listen", "0.0.0.0:"+proxyPort, "-allow", strings.Join(allow, ","))
 	if _, err := m.Podman.Output(ctx, args...); err != nil {
 		return "", err
 	}
@@ -225,7 +235,7 @@ func (m *Manager) Shell(ctx context.Context, name string, cmd []string) error {
 			return err
 		}
 		args := append([]string{"run", "--rm", "-i"}, m.tty()...)
-		args = append(append(args, m.sandboxFlags(e, ip)...), e.Image)
+		args = append(append(args, m.sandboxFlags(e, ip)...), image(e.Image)...)
 		return m.Podman.Attach(ctx, append(args, cmd...)...)
 	}
 	args := append([]string{"exec", "-i"}, m.tty()...)
@@ -303,7 +313,7 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 	if p.Memory != "" {
 		args = append(args, "--memory", p.Memory)
 	}
-	args = append(append(append(args, p.Image), p.Args...), extra...)
+	args = append(append(append(args, image(p.Image)...), p.Args...), extra...)
 	return m.Podman.Attach(ctx, args...)
 }
 
@@ -440,7 +450,7 @@ func (m *Manager) Port(ctx context.Context, name string, ctrPort, hostPort int) 
 		"--read-only", "--user", "65532:65532", "--memory", "32m", "--pids-limit", "32",
 	}
 	args = append(args, hardening...)
-	args = append(args, e.ForwardImage, "-listen", "0.0.0.0:"+cp, "-target", ip+":"+cp)
+	args = append(append(args, image(e.ForwardImage)...), "-listen", "0.0.0.0:"+cp, "-target", ip+":"+cp)
 	if _, err := m.Podman.Output(ctx, args...); err != nil {
 		return err
 	}
