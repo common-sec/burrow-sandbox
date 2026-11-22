@@ -43,8 +43,14 @@ podman machine start burrow-hv
 podman system connection default burrow-hv
 
 # In a clone of this repository (inside C:\burrow-work)
-make tools images test-images         # from Git Bash; or: mise install, podman build ...
-mise exec -- go build -o burrow.exe ./cmd/burrow
+# Only Podman: burrow and its images are built in pinned containers (no Go, mise or make)
+podman build -f packaging/burrow/Dockerfile -t localhost/burrow-dist:dev .
+$c = podman create localhost/burrow-dist:dev /none
+podman cp "${c}:/dist" .\dist; podman rm $c
+copy dist\burrow-windows-amd64.exe burrow.exe
+podman build -f packaging/proxy/Dockerfile -t localhost/burrow-proxy:dev .
+podman build -f packaging/forward/Dockerfile -t localhost/burrow-forward:dev .
+foreach ($n in "alpine","curl","trivy") { podman build -t "localhost/burrow-test-${n}:dev" "test/images/$n" }
 $env:BURROW_PRESETS_DIR = "$PWD\test\presets"
 .\burrow.exe run alpine --name dev --workspace C:\burrow-work\project   # mounted at /work
 .\burrow.exe shell dev -- id

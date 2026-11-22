@@ -67,17 +67,24 @@ Details and the threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Try it
 
-You need Podman 4.9 or newer (on Windows and macOS: a Podman machine), `make` and
-[mise](https://mise.jdx.dev). With only Podman, `sh scripts/build-in-container.sh` builds the
-binaries into `dist/` ([DEVELOPMENT.md](docs/DEVELOPMENT.md)).
+You need only Podman 4.9 or newer (on Windows and macOS: a Podman machine). No Go, mise or make
+on your machine: everything is built in pinned containers, from the repository as the build
+context, so nothing goes through the machine's shared folder (which has no file locking).
 
 burrow runs **presets**, not images: a preset is a pinned image plus the settings it is safe to
 run with. Presets come from your presets folder (`burrow presets` prints it). Published, prebuilt
 presets with an index are planned; until then, the test presets in `test/presets` show the format.
 
 ```sh
-make tools images test-images  # tools from mise.lock; proxy, forwarder and test preset images
-mise exec -- go build -o burrow ./cmd/burrow
+# burrow binaries for every platform, built in the pinned Go image, copied to dist/
+podman build -f packaging/burrow/Dockerfile -t localhost/burrow-dist:dev .
+c=$(podman create localhost/burrow-dist:dev /none) && podman cp "$c:/dist" ./dist && podman rm "$c"
+cp dist/burrow-linux-amd64 ./burrow       # or burrow-darwin-arm64, burrow-windows-amd64.exe ...
+
+# the images burrow starts: proxy, port forwarder, and the test presets' images
+podman build -f packaging/proxy/Dockerfile -t localhost/burrow-proxy:dev .
+podman build -f packaging/forward/Dockerfile -t localhost/burrow-forward:dev .
+for n in alpine curl trivy; do podman build -t "localhost/burrow-test-$n:dev" "test/images/$n"; done
 export BURROW_PRESETS_DIR=$PWD/test/presets
 
 ./burrow presets list                                       # also: presets search TERM, presets info NAME
