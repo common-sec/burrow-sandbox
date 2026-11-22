@@ -101,7 +101,7 @@ func TestUpLayout(t *testing.T) {
 
 func TestShellKrunFallsBackToOneShotVM(t *testing.T) {
 	m, rec := setup(t, config.EngineKrun)
-	if err := m.Shell(context.Background(), "dev", []string{"id"}); err != nil {
+	if err := m.Shell(context.Background(), "dev", "", []string{"id"}); err != nil {
 		t.Fatal(err)
 	}
 	last := rec.Calls[len(rec.Calls)-1]
@@ -437,6 +437,48 @@ func TestUpRequiresLocalImages(t *testing.T) {
 		}
 		if find(rec, "network", "create") != nil || find(rec, "run") != nil {
 			t.Fatalf("%s: created something before failing: %v", c.img, rec.Calls)
+		}
+	}
+}
+
+// U22: --user runs the tool or the shell as another uid:gid, never as root, and the workspace
+// mapping follows it.
+func TestUserFlag(t *testing.T) {
+	for _, c := range []struct {
+		user string
+		ok   bool
+	}{
+		{"2000:2000", true},
+		{"", true},      // the preset's RUN_AS
+		{"0:0", false},  // root
+		{"root", false}, // a name, and root
+		{"00:0", false}, // root written another way
+		{"1000", false}, // no gid
+		{"1000:1000,rw", false},
+	} {
+		m, rec := setup(t, config.EngineCrun)
+		p := &config.Preset{
+			Name: "scan", Image: pinned, WorkspaceMode: config.WorkspaceRO,
+			Network: config.NetworkNone, Engine: config.EngineCrun, RunAs: "65532:65532",
+		}
+		n := len(rec.Calls)
+		err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{User: c.user})
+		if (err == nil) != c.ok {
+			t.Fatalf("exec --user %q: err %v, want ok=%v", c.user, err, c.ok)
+		}
+		serr := m.Shell(context.Background(), "dev", c.user, []string{"id"})
+		if (serr == nil) != c.ok {
+			t.Fatalf("shell --user %q: err %v, want ok=%v", c.user, serr, c.ok)
+		}
+		if !c.ok || c.user == "" {
+			continue
+		}
+		run, sh := rec.Calls[n], rec.Calls[len(rec.Calls)-1]
+		if !has(run, "--user", c.user) || !has(run, "--userns", "keep-id:uid=2000,gid=2000") {
+			t.Fatalf("exec --user %q: %v", c.user, run)
+		}
+		if sh[0] != "exec" || !has(sh, "--user", c.user) {
+			t.Fatalf("shell --user %q: %v", c.user, sh)
 		}
 	}
 }

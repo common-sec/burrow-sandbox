@@ -263,10 +263,19 @@ func inside(dir, path string) (string, bool) {
 }
 
 // Shell runs a command (default: sh) inside the persistent sandbox.
-func (m *Manager) Shell(ctx context.Context, name string, cmd []string) error {
+// Shell runs a command inside the sandbox, as the sandbox's RUN_AS or as user (--user, never
+// root) when set.
+func (m *Manager) Shell(ctx context.Context, name, user string, cmd []string) error {
 	e, err := m.loadEnv(name)
 	if err != nil {
 		return err
+	}
+	var userFlag []string
+	if user != "" {
+		if err := config.CheckRunAs(user); err != nil {
+			return fmt.Errorf("--user: %w", err)
+		}
+		userFlag = []string{"--user", user}
 	}
 	if len(cmd) == 0 {
 		cmd = []string{"sh"}
@@ -278,11 +287,14 @@ func (m *Manager) Shell(ctx context.Context, name string, cmd []string) error {
 		if err != nil {
 			return err
 		}
+		if user != "" {
+			e.RunAs = user
+		}
 		args := append([]string{"run", "--rm", "-i"}, m.tty()...)
 		args = append(append(args, m.sandboxFlags(e, ip)...), image(e.Image)...)
 		return m.Podman.Attach(ctx, append(args, cmd...)...)
 	}
-	args := append([]string{"exec", "-i"}, m.tty()...)
+	args := append(append([]string{"exec", "-i"}, m.tty()...), userFlag...)
 	return m.Podman.Attach(ctx, append(append(args, sandboxName(e.Name)), cmd...)...)
 }
 
@@ -298,6 +310,8 @@ type ExecOptions struct {
 	// Strict caps the tool by its sandbox: no more workspace access, no host outside the
 	// sandbox's allowlist, no added capabilities. Also on when the sandbox file says STRICT=true.
 	Strict bool
+	// User runs the tool as this uid:gid instead of the preset's RUN_AS (--user). Never root.
+	User string
 }
 
 // Exec runs a preset as a one-off tool and waits for it. The tool is a sibling of the sandbox, not
@@ -310,6 +324,13 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 	r, err := m.resolveTool(name, workspace, p, o)
 	if err != nil {
 		return err
+	}
+	runAs := p.RunAs
+	if o.User != "" {
+		if err := config.CheckRunAs(o.User); err != nil {
+			return fmt.Errorf("--user: %w", err)
+		}
+		runAs = o.User
 	}
 	need := []string{p.Image}
 	if r.network == config.NetworkProxy {
@@ -324,7 +345,7 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 	}
 	base := "burrow-" + def(r.env, "exec") + "-" + p.Name + "-" + id
 	args := append([]string{"run", "--rm", "-i", "--name", base}, envLabel(r.env)...)
-	args = append(args, "--label", labelKind+"=tool", "--user", p.RunAs, "--read-only", "--tmpfs", "/tmp",
+	args = append(args, "--label", labelKind+"=tool", "--user", runAs, "--read-only", "--tmpfs", "/tmp",
 		"--pids-limit", "512")
 	args = append(args, m.tty()...)
 	args = append(args, hardening...)
@@ -350,7 +371,7 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 	if r.wsMode != config.WorkspaceNone {
 		// Map the host user to the tool's own user, so the tool can read the user's files (and
 		// write them, if rw) without making them world-readable. Inside, it is still its own uid.
-		uid, gid, _ := strings.Cut(p.RunAs, ":")
+		uid, gid, _ := strings.Cut(runAs, ":")
 		args = append(args, "--userns", "keep-id:uid="+uid+",gid="+gid,
 			"-v", r.workspace+":/work:"+string(r.wsMode), "-w", "/work")
 	}

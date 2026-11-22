@@ -33,16 +33,16 @@ burrow runs tool and environment presets focused on security, not images: a pres
 image plus the least privilege it needs. Presets live in your presets folder (` + "`burrow presets`" + `).
 
 Usage:
-  burrow up [-f FILE] [--image IMAGE]
+  burrow up [-f FILE] [--image IMAGE] [--user UID:GID]
         start the persistent sandbox defined by a sandbox file (default ./` + SandboxFile + `)
-  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR]
+  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]
         start an ad-hoc persistent sandbox from a preset (workspace: current folder)
-  burrow exec [-s SANDBOX] [--strict] [--workspace DIR] PRESET [-- ARGS...]
+  burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]
         run a preset as a one-off tool next to the sandbox, with what the preset asks for.
         Where the preset says inherit, it takes the sandbox's workspace mode and allowlist;
         without a sandbox (-s, or a sandbox file here) it takes the preset's fallback.
         --strict (or STRICT=true in the sandbox file): never more than the sandbox has
-  burrow shell [NAME] [-- CMD ARGS...]
+  burrow shell [NAME] [--user UID:GID] [-- CMD ARGS...]
         run a command inside the sandbox (default: sh)
   burrow port NAME PORT [HOST_PORT]
         publish a sandbox port on 127.0.0.1 after start
@@ -53,6 +53,7 @@ Usage:
         the presets in your presets folder
   burrow version
 
+--user UID:GID runs as that user instead of the preset's RUN_AS (never root, uid 0).
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
 
 Global flags (before the command):
@@ -137,9 +138,10 @@ func run(argv []string) error {
 	case "up":
 		file := sub.String("f", SandboxFile, "")
 		image := sub.String("image", "", "")
+		user := sub.String("user", "", "")
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 0 {
-			return errors.New("usage: burrow up [-f FILE] [--image IMAGE]")
+			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID]")
 		}
 		keys, err := config.LoadSandboxFile(*file)
 		if err != nil {
@@ -151,7 +153,7 @@ func run(argv []string) error {
 				return err
 			}
 		}
-		e, err := config.NewSandbox(p, keys, filepath.Dir(*file), config.Overrides{Image: *image})
+		e, err := config.NewSandbox(p, keys, filepath.Dir(*file), config.Overrides{Image: *image, RunAs: *user})
 		if err != nil {
 			return fmt.Errorf("%s: %w", *file, err)
 		}
@@ -161,9 +163,10 @@ func run(argv []string) error {
 		name := sub.String("name", "", "")
 		image := sub.String("image", "", "")
 		ws := sub.String("workspace", "", "")
+		user := sub.String("user", "", "")
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR]")
+			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]")
 		}
 		p, err := find(pos[0])
 		if err != nil {
@@ -173,7 +176,7 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		e, err := config.NewSandbox(p, nil, dir, config.Overrides{Name: *name, Image: *image, Workspace: dir})
+		e, err := config.NewSandbox(p, nil, dir, config.Overrides{Name: *name, Image: *image, Workspace: dir, RunAs: *user})
 		if err != nil {
 			return err
 		}
@@ -182,9 +185,10 @@ func run(argv []string) error {
 		name := sub.String("s", "", "")
 		strict := sub.Bool("strict", false, "")
 		ws := sub.String("workspace", "", "")
+		user := sub.String("user", "", "")
 		pos, after, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] PRESET [-- ARGS...]")
+			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]")
 		}
 		if *name != "" && *ws != "" {
 			return errors.New("exec: --workspace is for a tool without a sandbox; a sandbox brings its own")
@@ -202,17 +206,18 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		return m.Exec(ctx, *name, dir, p, after, sandbox.ExecOptions{Strict: *strict})
+		return m.Exec(ctx, *name, dir, p, after, sandbox.ExecOptions{Strict: *strict, User: *user})
 	case "shell":
+		user := sub.String("user", "", "")
 		pos, after, err := parseArgs(sub, rest)
 		if err != nil || len(pos) > 1 {
-			return errors.New("usage: burrow shell [NAME] [-- CMD ARGS...]")
+			return errors.New("usage: burrow shell [NAME] [--user UID:GID] [-- CMD ARGS...]")
 		}
 		name, err := nameArg(pos)
 		if err != nil {
 			return err
 		}
-		return m.Shell(ctx, name, after)
+		return m.Shell(ctx, name, *user, after)
 	case "port":
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) < 2 || len(pos) > 3 {

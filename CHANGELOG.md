@@ -14,6 +14,7 @@
 - Sandbox presets with agents (claude, codex, opencode, pi, hermes) and distributions (ubuntu,
   kali), from pinned bases and lockfiles with hashes; built and scanned weekly (decision 0009).
 - burrow checks Podman (4.9+, netavark) before creating anything.
+- `--user UID:GID` on `run`, `up`, `exec` and `shell` overrides the preset's `RUN_AS` (never root).
 - Nothing is installed on the host: vet, golangci-lint, tests, govulncheck, fmt and the build run
   in pinned images (`packaging/dev/Dockerfile`); mise, `mise.lock` and its installer are gone
   (decision 0010). The scanner pins moved from `compose.yaml` to

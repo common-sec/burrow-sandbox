@@ -242,6 +242,7 @@ type Overrides struct {
 	Name      string
 	Image     string
 	Workspace string // absolute
+	RunAs     string // --user: uid:gid, checked like RUN_AS
 }
 
 // NewSandbox resolves a sandbox from a preset (may be nil), a sandbox file's keys (may be nil;
@@ -265,7 +266,7 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 			m[k] = v
 		}
 	}
-	for k, v := range map[string]string{"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace} {
+	for k, v := range map[string]string{"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace, "RUN_AS": o.RunAs} {
 		if v != "" {
 			m[k] = v
 		}
@@ -311,7 +312,7 @@ func (e *Env) Validate() error {
 		errs = append(errs, errors.New(`NAME "exec" is reserved (tools run without a sandbox)`))
 	}
 	errs = append(errs, checkImage("IMAGE", e.Image), checkImage("PROXY_IMAGE", e.ProxyImage),
-		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), checkRunAs(e.RunAs),
+		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), CheckRunAs(e.RunAs),
 		checkHosts(e.Allow), checkMemory(e.Memory), checkEnv(e.Env))
 	switch e.WorkspaceMode {
 	case WorkspaceRW, WorkspaceRO:
@@ -379,7 +380,7 @@ func ParsePreset(r io.Reader, src string) (*Preset, error) {
 	if !nameRe.MatchString(p.Name) {
 		errs = append(errs, fmt.Errorf("NAME %q: 2 to 32 of a-z, 0-9 and '-'", p.Name))
 	}
-	errs = append(errs, checkImage("IMAGE", p.Image), checkEngine(p.Engine), checkRunAs(p.RunAs),
+	errs = append(errs, checkImage("IMAGE", p.Image), checkEngine(p.Engine), CheckRunAs(p.RunAs),
 		checkHosts(p.Allow), checkMemory(p.Memory), checkEnv(p.Env), checkCaps(p.CapAdd))
 	if p.WorkspaceMode != WorkspaceInherit && wsFb != "" {
 		errs = append(errs, errors.New("WORKSPACE_MODE: a fallback (:mode) only goes with inherit"))
@@ -582,7 +583,9 @@ func checkEngine(e Engine) error {
 	return nil
 }
 
-func checkRunAs(s string) error {
+// CheckRunAs accepts uid:gid with a uid other than 0: burrow never runs anything as root. It
+// checks RUN_AS in presets and sandbox files and the --user flag.
+func CheckRunAs(s string) error {
 	if !runAsRe.MatchString(s) {
 		return fmt.Errorf("RUN_AS %q: uid:gid", s)
 	}

@@ -204,3 +204,30 @@ func TestFindAndListPresets(t *testing.T) {
 		t.Fatalf("search: %v", got)
 	}
 }
+
+// U22: --user wins over RUN_AS and is checked like it (never root).
+func TestNewSandboxUserOverride(t *testing.T) {
+	dir := t.TempDir()
+	p := &Preset{Name: "a", raw: map[string]string{"IMAGE": pinned, "RUN_AS": "1000:1000", "WORKSPACE_MODE": "none"}}
+	for _, c := range []struct {
+		user, want string
+		ok         bool
+	}{
+		{"", "1000:1000", true},
+		{"2000:2000", "2000:2000", true},
+		{"0:0", "", false},
+		{"0:1000", "", false},
+		{"1000:1000\n", "", false},
+	} {
+		e, err := NewSandbox(p, nil, dir, Overrides{Name: "tt", RunAs: c.user})
+		if err == nil {
+			err = e.Validate()
+		}
+		if (err == nil) != c.ok {
+			t.Fatalf("--user %q: err %v, want ok=%v", c.user, err, c.ok)
+		}
+		if c.ok && e.RunAs != c.want {
+			t.Fatalf("--user %q: RUN_AS %s, want %s", c.user, e.RunAs, c.want)
+		}
+	}
+}
