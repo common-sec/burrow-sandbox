@@ -1,23 +1,21 @@
 # 0007: Presets are least-privilege siblings; strict mode caps them by the sandbox
 
-**Status:** proposed (2026-11-20). **Asked by:** J (second review of PR #1). **Supersedes** the
+**Status:** proposed (2026-11-20). **Owner:** J. **Supersedes** the
 "a tool never gets more than its sandbox" rule of [0005](0005-presets-not-images.md).
 
 ## Context
 
 0005 capped every tool by its sandbox: no wider workspace mode, the sandbox's allowlist or
-narrower, no capabilities. J's review changes the model:
+narrower, no capabilities. That breaks tools that legitimately need more than the agent's
+sandbox (a scanner that needs network, a formatter that must write), and it hides the real
+security boundary:
 
-- "Security models is that preset already is already configured to allow least privilege and
-  access possible to carry the work that is expected from it. And running it on a sibling
-  container instead of nested sandboxes, because independent restrictions can be set on it."
-- "For sibling containers it makes sense that some can gain privileges if the specific tool is
-  expected have this permissions. For strict sandbox restrictions, some flag and mode should be
-  enabled."
-- "read-only, no network depends on the preset. If tool requires network, or rw, then it will
-  have rw."
-- "for inherit values, we are missing the default value... If there is no sandbox what value
-  should tool use?"
+- A preset is already least privilege: it asks only for what its tool needs. Running it as a
+  sibling container, not nested, lets those restrictions be set independently of the sandbox.
+- So a sibling may get privileges the sandbox lacks, when its tool is expected to need them.
+  Users who want the sandbox to be the ceiling need an explicit strict mode.
+- Read-only and no network are then the preset's choice, not a global rule.
+- `inherit` needs a defined value for when there is no sandbox to inherit from.
 
 Controls served (from the organisation's control matrix): Least Privilege (SCF IAC-30), Boundary
 Protection (NET-03), Data Flow Enforcement (NET-04), Secure Baseline Configurations (CFG-04). SCF is credited as in secure-standard-platforms' NOTICE.md.

@@ -1,7 +1,9 @@
 # 0009: Sandbox presets for agents and distributions, built from pinned images
 
-**Status:** proposed (2026-11-22). **Asked by:** J (review of PR #1): "add sandbox for codex,
-claude, opencode, pi, hermes, alpine, ubuntu, kali linux."
+**Status:** proposed (2026-11-22). **Owner:** J.
+**Why:** burrow is only useful if people can run the agents they already use (claude, codex,
+opencode, pi, hermes) and common distributions (alpine, ubuntu, kali) inside it, from images whose
+contents are pinned and scanned.
 
 ## Context
 

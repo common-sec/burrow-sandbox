@@ -1,7 +1,9 @@
 # 0008: The port forwarder is written in Rust
 
-**Status:** proposed (2026-11-20). **Asked by:** J (second review of PR #1): "now that I'm
-thinking, this probably would be safe in rust. rewrite it, please."
+**Status:** proposed (2026-11-20). **Owner:** J.
+**Why:** the forwarder is the one component that relays raw network traffic between the host and a
+sandbox the agent controls; a memory-safe language with no runtime and no dependencies keeps
+that attack surface as small as it can be.
 
 ## Context
 

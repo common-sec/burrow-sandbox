@@ -1,7 +1,8 @@
 # 0001: Repository layout for several products
 
-**Status:** proposed (2026-11-18). **Asked by:** J ("a monorepo with sandbox, proxy, forwarder,
-each one generating different packages... code within /src? or a folder per product?").
+**Status:** proposed (2026-11-18). **Owner:** J.
+**Why:** burrow ships several products (CLI, proxy, forwarder) from one repository, each with its
+own package, so the layout must keep them apart without duplicating shared code.
 
 ## Context
 

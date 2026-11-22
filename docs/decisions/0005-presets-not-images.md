@@ -2,9 +2,10 @@
 
 **Status:** proposed (2026-11-18); **partly superseded by [0007](0007-preset-security-model.md)**
 (2026-11-20): tools are no longer capped by the sandbox unless strict mode is on, `inherit` has
-a fallback, and there are no built-in presets. **Asked by:** J (review of PR #1): "burrow runs presets, not
-images", "up and run should run a persistent sandbox", "exec should run a preset", "allow the
-preset to inherit configs like fs mounts (rw/ro/inherit)... maybe proxy settings".
+a fallback, and there are no built-in presets. **Owner:** J.
+**Why:** an image says nothing about what a tool may reach; a preset carries its restrictions with
+it, so users pick a tool, not a set of podman flags. Sandboxes must persist across commands,
+and tools started next to a sandbox need its mounts and proxy settings without repeating them.
 
 ## Context
 

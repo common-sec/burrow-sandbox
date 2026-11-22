@@ -1,12 +1,12 @@
 # 0006: Makefile as the entry point, AGENTS.md for instructions, daily grouped Dependabot
 
 **Status:** proposed (2026-11-18); the mise parts superseded by
-[0010](0010-dev-tools-in-containers.md) (2026-11-22): tools now run in pinned images. **Asked by:** J (review of PR #1).
+[0010](0010-dev-tools-in-containers.md) (2026-11-22): tools now run in pinned images. **Owner:** J.
 
 ## 1. Makefile as the single entry point
 
-**Context.** Commands were mise tasks. J: "add a Makefile to unify structure and make simpler local
-and CI pipeline execution."
+**Context.** Commands were mise tasks. One entry point that developers and CI call the same way
+keeps local and CI runs identical (D6) and is easier to find than tool-specific tasks.
 
 | Option | For | Against |
 |---|---|---|
@@ -21,9 +21,9 @@ The lock check now uses `git status --porcelain`, so a missing (untracked) `mise
 
 ## 2. AGENTS.md instead of Claude skills
 
-**Context.** J: "remove claude skills as looks like they don't have that much of impact. Leave the
-common commands and instructions on AGENTS.md and point CLAUDE.md to AGENTS.md. Add security
-instructions there."
+**Context.** Claude skills load only when they trigger and are read only by Claude, and in use they
+had little effect. Commands and security rules must reach every coding agent and every person,
+every time.
 
 | Option | For | Against |
 |---|---|---|
@@ -35,8 +35,9 @@ instructions there."
 
 ## 3. Dependabot: daily, grouped, reviewed by the security team
 
-**Context.** J: "all covered by dependabot with auto PRs for security, grouping all minor/patch into
-one PR. Run dependabot daily and notify the security team."
+**Context.** Every pin (D1) must be kept current, or pinning turns into running old, vulnerable
+versions. Updates must be few enough to review (grouped), fast for security fixes (daily), and
+seen by the people accountable for the supply chain (the security team).
 
 | Option | For | Against |
 |---|---|---|

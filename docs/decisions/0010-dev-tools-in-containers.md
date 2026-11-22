@@ -1,8 +1,8 @@
 # 0010: Developer checks in pinned containers; mise removed
 
-**Status:** proposed (2026-11-22). **Asked by:** J (review of PR #1): "mise installation makes no
-sense, as we are trying to prevent installing tooling on host in order to protect", and on the
-README: "We need to replace it by burrow, or direct podman commands instead." Supersedes the mise
+**Status:** proposed (2026-11-22). **Owner:** J.
+**Why:** burrow exists to keep third-party tools away from the host; its own development must not
+install them there either. Supersedes the mise
 parts of [0006](0006-make-agents-md-dependabot.md) (section 1) and of [0008](0008-rust-forwarder.md).
 
 Serves D1 (pinned), D2 (every step in a sandbox), D6 (same on every platform), O7 (simple), and
@@ -40,9 +40,9 @@ pinned containers.
   step that writes the working tree.
 - `make e2e` uses the binary from `make build`, so the host needs no Go.
 - The scanner images (TruffleHog, Semgrep, Trivy) move from `compose.yaml` to the FROM lines of
-  `packaging/scanners/Dockerfile` (J: "remove all docker compose"). `scripts/scan.sh` reads them
-  by stage name; Dependabot's docker ecosystem replaces its docker-compose one. Nothing used
-  compose itself: the file only held the pins.
+  `packaging/scanners/Dockerfile`: compose was never run, the file only held the pins, and one
+  Dockerfile format for every image means one Dependabot ecosystem and one way to read a pin.
+  `scripts/scan.sh` reads them by stage name.
 - `mise.toml`, `mise.lock`, `scripts/install-mise.sh`, `scripts/update-mise.sh` and the daily
   `update-pins.yml` workflow are removed. `.containerignore` keeps `.git`, `.cache`, `dist` and
   Rust's `target` out of every build context.

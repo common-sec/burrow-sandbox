@@ -1,6 +1,6 @@
 # 0002: Drive the podman CLI; generate Podman configuration later
 
-**Status:** proposed (2026-11-18). **Context:** J wants to keep the door open to doing this with
+**Status:** proposed (2026-11-18). **Context:** the door must stay open to doing this with
 Podman's own features instead of a wrapper, and to move code into Podman later (SB5, W7). burrow
 must work on Linux, and on Windows and macOS through a Podman machine (D6, R2).
 
