@@ -3,14 +3,12 @@
 # in the common-sec organisation and have write access to this repository.
 go.mod                    @common-sec/security
 go.sum                    @common-sec/security
-mise.toml                 @common-sec/security
-mise.lock                 @common-sec/security
 compose.yaml              @common-sec/security
 /packaging/               @common-sec/security
 /test/images/             @common-sec/security
 /test/presets/            @common-sec/security
 Cargo.toml                @common-sec/security
 Cargo.lock                @common-sec/security
-/scripts/install-mise.sh  @common-sec/security
-/scripts/update-mise.sh   @common-sec/security
+/scripts/                 @common-sec/security
+.containerignore          @common-sec/security
 /.github/                 @common-sec/security

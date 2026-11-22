@@ -49,7 +49,13 @@ Base images: `node:24.22.3-bookworm` (pushed 2026-11-12) for the npm agents and
   dependency that the lockfile also pins.
 - **Hermes:** `requirements.txt` with every dependency's version and SHA-256 (from
   `uv pip compile --generate-hashes --exclude-newer <7 days ago>`), installed with
-  `pip --require-hashes --no-deps` into a venv.
+  `pip --require-hashes --no-deps` into a venv. hermes-agent 0.19.0 (the newest release) pins
+  certifi, cryptography, pillow and PyJWT exactly at versions with HIGH/CRITICAL advisories that
+  have fixes (Trivy, 2026-11-22: GHSA-6q48-6c7w-9gw2, CVE-2026-69247, CVE-2026-112393,
+  CVE-2026-102268 and others). `overrides.txt` (`uv pip compile --override`) raises them to the
+  fixed releases, all older than the cooldown (certifi 2026.10.23, cryptography 50.0.2, pillow
+  13.0.0, PyJWT 2.15.1; upload dates from PyPI). `hermes --version` starts with them (CI job
+  `hermes`); deeper use is *untested*. A line goes once hermes-agent ships the fix.
 - **Presets:** `WORKSPACE_MODE=rw`, `NETWORK=proxy`, and an `ALLOW` list with the agent's API and
   login hosts. Those hosts come from the vendors' documentation and are *unverified*: check them
   on first use. A sandbox file's `ALLOW` replaces the list.

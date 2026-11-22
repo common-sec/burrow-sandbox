@@ -27,7 +27,7 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ✓ | `--dry-run` prints every podman command | SB5 (reviewable), O7 |
 | ✓ | Temporary proxy in Go (CONNECT, host allowlist, ports, no IP literals, no private addresses, JSON audit log) until a proxy solution is chosen; not extended except for tests or investigations | R7 (stand-in) |
 | ✓ | End-to-end checks on real rootless Podman, blocked checks only pass when the command ran | R12 |
-| ✓ | Base repository: pins, lockfile, cooldown, local-first checks and scans (code and images) through a Makefile, CI, daily grouped Dependabot reviewed by the security team, a daily workflow for the mise pin, AGENTS.md | D1, D2, D5 |
+| ✓ | Base repository: pins, lockfile, cooldown, local-first checks and scans (code and images) through a Makefile, CI, daily grouped Dependabot reviewed by the security team, AGENTS.md | D1, D2, D5 |
 | ✓ | Sandbox presets with agents and distributions: claude, codex, opencode, pi, hermes, ubuntu, kali, alpine (test presets, [0009](decisions/0009-agent-sandboxes.md)) | W5, R8 |
 | ✓ | Podman check at start: version 4.9+ and the netavark backend | R2, O7 |
 | ○ | Replace `scripts/scan.sh` and `compose.yaml` with burrow itself (scanners as presets, a burrow sandbox deployment) once released | D2, D6 |
@@ -44,6 +44,8 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ○ | macOS discovery: try the Podman machine (applehv and libkrun providers), find the security issues (shared folders, ports, what the VM sees) and recommend an install and usage path | D6 |
 | ○ | Workspace mounts on SELinux hosts (relabelling) and on machine shares (9p, virtiofs): file locking is missing on the shares (Go fails with `RLock go.mod: function not implemented`); option: a workspace kept in a volume inside the machine and synced with the host folder | R2, D6 |
 | ✓ | Build burrow with only Podman (`scripts/build-in-container.sh`), no Go or mise on the host | D6, O7 |
+| ✓ | Developer checks (vet, lint, tests, govulncheck, fmt) in pinned images; mise removed (decision 0010) | D1, D2, D6 |
+| ○ | Run the developer checks with burrow itself (one preset per tool), once workspaces can live in a volume | D2, R5 |
 
 ## 0.3 The real proxy
 
@@ -63,7 +65,7 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ○ | Shims: `trivy` on PATH runs its preset (a preset with no default arguments, like `test/presets/trivy.preset`), so scripts work with and without burrow; policy decides host runs | R5, SB4 |
 | ○ | Preset index: prebuilt, published images and an index service to search and download presets (users and CI do not build them); override and configure existing presets, define new ones. Spike on how brew, winget, Debian, Nix and Docker Hub build and index, then a decision record on the architecture and on the repository (here or a dedicated one): issues #5 and #6 | R8, D1 |
 | ○ | Presets repository: images built from scratch, signed, pushed to a public OCI registry, usable without burrow | R8, D7 |
-| ○ | Decide mise inside the sandbox or only to build preset images | W6 |
+| ○ | Decide how tools get into a sandbox (mise inside it, or only to build preset images) | W6 |
 | ○ | Host runs only by policy (fail closed) | R3 |
 | ○ | Definition format decision (KEY=VALUE today; TOML, YAML, or Podman's own) | 0003 |
 

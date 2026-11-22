@@ -11,7 +11,10 @@ cd "$(dirname "$0")/.."
 export BURROW_STATE_DIR=${BURROW_STATE_DIR:-$(mktemp -d)}
 export BURROW_PRESETS_DIR=$PWD/test/presets
 mkdir -p .cache
-if [ -n "${BURROW_BIN:-}" ]; then b=$BURROW_BIN; else go build -o .cache/burrow ./cmd/burrow || exit 1; b=.cache/burrow; fi
+# The binary from `make build` (built in a container), for this machine's architecture.
+case $(uname -m) in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) arch=$(uname -m) ;; esac
+b=${BURROW_BIN:-dist/burrow-linux-$arch}
+[ -x "$b" ] || { echo "e2e: $b not found: run 'make build' first" >&2; exit 1; }
 case $b in /*) ;; *) b=$PWD/$b ;; esac
 # Networks that intercept TLS (some corporate and cloud sandboxes) break certificate checks inside
 # containers; E2E_TLS_INSECURE=1 skips them for the reachability checks only.

@@ -19,7 +19,8 @@
 > - **Hyper-V and WSL Podman machines cannot build Go from a shared folder.** The share has no
 >   file locking, and Go locks `go.mod` (`go: RLock /work/go.mod: function not implemented`).
 >   To fix or work around (see "Known issues"); building burrow itself works with
->   `sh scripts/build-in-container.sh`, which never uses the share.
+>   `sh scripts/build-in-container.sh`, and the developer checks with
+>   `podman build --target vet|lint|test|vuln -f packaging/dev/Dockerfile .`; neither uses the share.
 > - **Podman inside a WSL distro** (not a machine) is where the work so far has been done, with the
 >   repository under `/mnt/c/...`. Ubuntu 22.04's Podman 3.4.4 is too old: its CNI network
 >   backend fails on burrow's networks (`plugin firewall does not support config version

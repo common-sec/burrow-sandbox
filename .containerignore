@@ -1,0 +1,5 @@
+# Build context for every image built from the repository root: only what the Dockerfiles copy.
+.git
+.cache
+dist
+crates/*/target

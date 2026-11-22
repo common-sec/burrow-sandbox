@@ -12,7 +12,8 @@ this folder holds burrow's own.
 | [0003](0003-definition-format.md) | KEY=VALUE definitions for the prototype | proposed, provisional |
 | [0004](0004-licence.md) | Apache-2.0 | proposed |
 | [0005](0005-presets-not-images.md) | burrow runs presets, not images: `up` (sandbox file), `run PRESET`, `exec PRESET` with inheritance, `shell` | proposed; its tool cap superseded by 0007 |
-| [0006](0006-make-agents-md-dependabot.md) | Makefile as the entry point; AGENTS.md instead of skills; daily grouped Dependabot reviewed via CODEOWNERS | proposed |
+| [0006](0006-make-agents-md-dependabot.md) | Makefile as the entry point; AGENTS.md instead of skills; daily grouped Dependabot reviewed via CODEOWNERS | proposed; mise parts superseded by 0010 |
 | [0007](0007-preset-security-model.md) | Presets are least-privilege siblings; `inherit:FALLBACK`; strict mode; `CAP_ADD` short list (exception, owner J) | proposed |
 | [0009](0009-agent-sandboxes.md) | Sandbox presets for agents (claude, codex, opencode, pi, hermes) and distributions (ubuntu, kali), from pinned images and lockfiles with hashes | proposed |
 | [0008](0008-rust-forwarder.md) | The port forwarder in Rust, standard library only (exception to org DR-0006, owner J) | proposed |
+| [0010](0010-dev-tools-in-containers.md) | Developer checks in pinned containers (`packaging/dev/Dockerfile`); mise removed; supersedes the mise parts of 0006 | proposed |

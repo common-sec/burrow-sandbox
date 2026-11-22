@@ -1,8 +1,8 @@
 name: CI
 
 # CI runs the same Makefile targets a developer runs locally (local first). Nothing but GitHub's
-# own checkout action is used, pinned by commit SHA; mise is installed from a checksum-verified
-# release (scripts/install-mise.sh), and every tool from mise.lock.
+# own checkout action is used, pinned by commit SHA. Nothing is installed on the runner: every tool
+# runs in a container pinned by digest, the same as on a developer's machine (decision 0010).
 on:
   push:
   pull_request:
@@ -23,12 +23,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install mise (pinned, checksum verified)
-        run: sh scripts/install-mise.sh "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: mise.lock is committed and matches mise.toml
-        run: make lock-check
-      - name: Install tools from mise.lock
-        run: make tools
+      - run: podman --version
       - run: make check
       - name: Checksums of this build
         run: cat dist/SHA256SUMS
@@ -59,10 +54,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install mise (pinned, checksum verified)
-        run: sh scripts/install-mise.sh "$HOME/.local/bin" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: make tools
       - run: podman --version
+      # Builds burrow in its container first (make build), then runs the checks with that binary.
       - run: make e2e
-      - name: Build with only Podman (no Go on the host needed)
-        run: make build-container

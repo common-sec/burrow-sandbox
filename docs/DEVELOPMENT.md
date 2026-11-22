@@ -2,21 +2,36 @@
 
 ## Setup
 
-1. Install [mise](https://mise.jdx.dev) (a release you have checked; CI uses
-   `scripts/install-mise.sh`, which verifies the download's SHA-256).
-2. `mise trust && make tools`: Go and the linters at the exact versions and checksums in
-   `mise.lock`. mise refuses versions younger than 7 days (`minimum_release_age`). govulncheck
-   comes from `go.mod` (`tool` directive, checksums in `go.sum`) and runs as `go tool govulncheck`.
-   Rust is not installed on the host: the forwarder is checked and built inside its pinned build
-   image (`make forward`).
-3. `make hooks`: runs `make check` and `make scan` before every `git push`.
+You need **Podman 4.9+ and make**, nothing else: no Go, linters, Rust or mise on the host
+([decision 0010](decisions/0010-dev-tools-in-containers.md)). Every check runs in an image pinned
+by digest:
+
+- `make vet`, `make lint`, `make test`, `make vuln` build one stage of `packaging/dev/Dockerfile`
+  (`scripts/dev.sh`). The source is the build context, not a mount, so this also works from a
+  Podman machine's shared folder. vet, lint and tests run with no network; govulncheck reads
+  vuln.go.dev.
+- `make build` builds the binaries in `packaging/burrow/Dockerfile`; `make forward` checks and
+  builds the Rust forwarder in its image; the scanners are pinned containers (`compose.yaml`).
+- `make fmt` is the one step that mounts the repository (read-write, no network, no capabilities,
+  your own user), because it writes the files back.
+
+Then `make hooks`: runs `make check` and `make scan` before every `git push`.
+
+Behind a proxy that intercepts TLS, pass a CA to the builds:
+`DEV_BUILD_FLAGS="-v /path/ca.crt:/etc/ssl/certs/ca-certificates.crt:ro" make check` (local only).
+
+Without make (PowerShell), the checks are plain podman commands:
+
+```powershell
+foreach ($t in "vet","lint","test","vuln") { podman build --target $t -f packaging/dev/Dockerfile . }
+```
 
 Podman 4.9+ is needed for `images` and `e2e` (rootless; on Windows and macOS a Podman machine).
 On Windows, run `make` from WSL or Git Bash.
 
-## Building with only Podman (no Go, no mise)
+## Building
 
-`sh scripts/build-in-container.sh` (or `make build-container`) builds the binaries for every
+`make build` (`sh scripts/build-in-container.sh`) builds the binaries for every
 platform inside a pinned Go image (`packaging/burrow/Dockerfile`) and copies them to `dist/`.
 The source goes in as the build context, which Podman copies into the machine, so this also works
 where the shared folder of a Podman machine has no file locking (see WINDOWS.md, "Known issues").
@@ -28,32 +43,32 @@ $c = podman create localhost/burrow-dist:dev /none
 podman cp "${c}:/dist" ./dist; podman rm $c
 ```
 
-The binaries match `make build` except for the git stamp Go embeds (`vcs.*` in
-`go version -m`), because the build context has no `.git`; the version string is passed in.
+The build context has no `.git`, so Go embeds no `vcs.*` stamp (`go version -m`); the version
+string is passed in from `git describe`.
 
 ## Make targets (the same locally and in CI)
 
 The Makefile owns every command ([decision 0006](decisions/0006-make-agents-md-dependabot.md));
-mise only provides the tools. `make help` lists them.
+pinned images provide the tools ([decision 0010](decisions/0010-dev-tools-in-containers.md)). `make help` lists them.
 
 | Target | What |
 |---|---|
 | `make check` | `lint` (go vet, golangci-lint with gosec), `test`, `vuln` (govulncheck), `build`, `forward` (rustfmt, clippy, cargo test, release build of the Rust forwarder in its image) |
 | `make scan` | `vuln`, TruffleHog (secrets, git history and tree, no network), Semgrep (SAST), Trivy on the repository (dependencies, misconfigurations, secrets) and on the images we build (`scan-images`: vulnerabilities and secrets), each in a pinned, read-only, unprivileged container; `make scan-secrets` runs one |
-| `make fmt` | gofumpt + goimports |
+| `make fmt` | gofumpt + goimports (golangci-lint image, repository mounted) |
 | `make images` | build the proxy and forwarder images |
 | `make test-images` | build the images of the test presets (`test/images/<name>/Dockerfile` → `localhost/burrow-test-<name>:dev`) |
 | `make e2e` | end-to-end checks on real rootless Podman ([TESTING.md](TESTING.md)) |
-| `make build` | static binaries for six platforms in `dist/`, with `SHA256SUMS` |
-| `make build-container` | the same, built inside a container: needs only Podman |
-| `make lock` / `make lock-check` | update `mise.lock` / fail if it is missing or stale (CI) |
+| `make build` | static binaries for six platforms in `dist/`, with `SHA256SUMS`, built in a container |
+| `make vet` / `make test` / `make vuln` | one check each, in `packaging/dev/Dockerfile` |
 
 ## Rules
 
 - **No new Go module or Rust crate** without a decision record (licence, maintenance, size, cooldown). The
   standard library first.
-- **Pin everything:** images by digest (with the tag for readers), Actions by commit SHA, tools in
-  `mise.lock`. New versions only after 7 days.
+- **Pin everything:** images by digest (with the tag for readers), Actions by commit SHA, tools as
+  images in `packaging/dev/Dockerfile`. New versions only after 7 days. Nothing is installed on
+  the host or the CI runner.
 - **Run podman only through `internal/podman`,** with argument lists. Never a shell, never string
   concatenation into a command.
 - Every security property has a test, including a test that tries to break it. A "blocked" check
@@ -64,12 +79,11 @@ mise only provides the tools. `make help` lists them.
 
 | What | How | Automated |
 |---|---|---|
-| Go modules (govulncheck included), Rust crates, base images (`packaging/`, `test/images/`), scanner images (`compose.yaml`), Actions | Dependabot, daily, 7-day cooldown; minor+patch grouped per ecosystem, security updates grouped; reviewed by the security team (CODEOWNERS) | yes |
-| mise itself (`scripts/install-mise.sh`) | `scripts/update-mise.sh`: the newest release at least 7 days old, checksums from its `SHASUMS256.txt` | yes: `.github/workflows/update-pins.yml` opens a PR daily |
-| Tools in `mise.toml` (Go, golangci-lint) | edit the version, `make lock`, review the diff | **no**: Dependabot does not read mise.toml (*gap*; Renovate does) |
+| Go modules (govulncheck included), Rust crates, base images and developer tools (`packaging/`, including `packaging/dev`: Go and golangci-lint), test images and their npm/pip lockfiles (`test/images/`), scanner images (`compose.yaml`), Actions | Dependabot, daily, 7-day cooldown; minor+patch grouped per ecosystem, security updates grouped; reviewed by the security team (CODEOWNERS) | yes |
 | Image constants in Go tests (`internal/*/..._test.go`) | edit by hand when the test images change | **no** (issue #7) |
 
-**Security fixes skip the cooldown.** For a tool in `mise.toml` (Go, for example): bump the
-version, run `MISE_MINIMUM_RELEASE_AGE=0d make lock tools check`, and name the advisory in the
-commit message. For the mise installer: `COOLDOWN_DAYS=0 sh scripts/update-mise.sh`. Go modules,
-crates and images get security updates from Dependabot without the cooldown.
+**Security fixes skip the cooldown.** Go modules, crates, images (the Go and golangci-lint images
+included) and lockfiles get security updates from Dependabot without the cooldown. By hand: bump
+the digest or version, run `make check`, and name the advisory in the commit message. A package
+that pins a vulnerable dependency exactly gets an override with the advisory next to it
+(`test/images/hermes/overrides.txt`).

@@ -1,5 +1,5 @@
 # Dependabot keeps pinned dependencies current (D1). Checked every day.
-# - Version updates wait for a 7-day cooldown, the same as mise's minimum_release_age: a release
+# - Version updates wait for a 7-day cooldown, the same rule as everywhere in burrow: a release
 #   is only proposed once it has been public for a week. Security updates skip the cooldown.
 # - Minor and patch updates come as ONE grouped PR per ecosystem; majors one PR each, to review.
 # - Security updates come grouped per ecosystem too. They need "Dependabot security updates"
@@ -8,9 +8,9 @@
 #   removed in May 2025 in favour of code owners).
 # - One PR across ecosystems (multi-ecosystem-groups) is not used: as documented it cannot be
 #   limited to minor and patch, so majors would hide inside it (docs/decisions/0006).
-# Not covered by Dependabot: mise.toml (update by hand, docs/DEVELOPMENT.md "Updating pins"),
-# scripts/install-mise.sh (.github/workflows/update-pins.yml opens a PR) and the pinned image
-# constants in Go tests (by hand).
+# The developer tools (Go, golangci-lint) are images in packaging/dev/Dockerfile, so Dependabot
+# updates them like any other image (decision 0010). Not covered: the pinned image constants in Go
+# tests (by hand, issue #7).
 version: 2
 
 updates:
@@ -56,6 +56,8 @@ updates:
   - package-ecosystem: docker
     directories:
       - /packaging/proxy
+      - /packaging/dev
+      - /packaging/burrow
       - /packaging/forward
       - /test/images/alpine
       - /test/images/curl

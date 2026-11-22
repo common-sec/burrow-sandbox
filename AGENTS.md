@@ -6,17 +6,16 @@ Copilot...) and for people; `CLAUDE.md` only points here.
 
 ## Commands
 
-Everything goes through the Makefile, locally and in CI (`make help` lists the targets). mise
-provides the pinned tools.
+Everything goes through the Makefile, locally and in CI (`make help` lists the targets). Every
+tool runs in a container pinned by digest: the host needs only Podman 4.9+ and make, never Go,
+linters or mise ([decision 0010](docs/decisions/0010-dev-tools-in-containers.md)).
 
 | Command | When |
 |---|---|
-| `make tools` | once, and after `mise.toml` or `mise.lock` change |
 | `make fmt` | before committing Go code (Rust: `cargo fmt` runs as a check in `make forward`) |
-| `make check` | before saying a change is done: go vet, golangci-lint (gosec...), tests, govulncheck, build, and the Rust forwarder (rustfmt, clippy, tests) |
+| `make check` | before saying a change is done: go vet, golangci-lint (gosec...), tests, govulncheck, build, and the Rust forwarder (rustfmt, clippy, tests), each in its pinned image (`packaging/dev/Dockerfile`) |
 | `make scan` | before a push: govulncheck, TruffleHog, Semgrep, Trivy on the repository and on the images we build, in pinned, locked-down containers |
 | `make e2e` | when sandbox behaviour changes (needs rootless Podman; builds the test preset images) |
-| `make lock` | after changing a tool version in `mise.toml`; commit `mise.lock` |
 | `make hooks` | once: runs `make check scan` before every push |
 
 Report results as they are. If something could not run (no Podman, no network), say so.
@@ -42,21 +41,24 @@ Report results as they are. If something could not run (no Podman, no network), 
 ## Supply chain: everything pinned, with a cooldown
 
 - **Pinned to an immutable identifier:** Go modules (`go.sum`), images (digest, with the tag
-  kept for readers), GitHub Actions (commit SHA), tools (`mise.lock` with checksums per
-  platform), govulncheck (`go.mod` `tool` directive, `go.sum`), Rust crates (`Cargo.lock`),
-  mise itself (SHA-256 in `scripts/install-mise.sh`), test preset images (digest in
-  `test/images/<name>/Dockerfile`).
-- **Cooldown of 7 days** for any new version: mise `minimum_release_age`, Dependabot `cooldown`.
-  Security fixes may skip it (`MISE_MINIMUM_RELEASE_AGE=0d`, see docs/DEVELOPMENT.md); say so in
-  the commit.
+  kept for readers), GitHub Actions (commit SHA), the developer tools (Go and golangci-lint
+  images by digest in `packaging/dev/Dockerfile`), govulncheck (`go.mod` `tool` directive,
+  `go.sum`), Rust crates (`Cargo.lock`), test preset images (digest in
+  `test/images/<name>/Dockerfile`) and their packages (`package-lock.json`, `requirements.txt`
+  with hashes).
+- **Nothing installed on the host.** Do not add a step that installs a tool on the developer's
+  machine or the CI runner; add a stage to a pinned image instead.
+- **Cooldown of 7 days** for any new version: Dependabot `cooldown`, `--before` / `--exclude-newer`
+  when generating lockfiles. Security fixes may skip it; say so in the commit and name the
+  advisory.
 - **Dependabot** checks every day: minor and patch updates come grouped, one PR per ecosystem;
   security updates come grouped too; majors one by one. The security team reviews them through
-  `.github/CODEOWNERS`. Dependabot does not read `mise.toml` (update by hand) or
-  `scripts/install-mise.sh` (a daily workflow opens a PR) ([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
+  `.github/CODEOWNERS`. Dependabot does not update the image constants in Go tests (by hand,
+  [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 - **Scan what we ship, not only the code:** every image we build (proxy, forwarder, and later
   presets and releases) is scanned for vulnerabilities and secrets (`make scan-images`), locally
   and in CI. A new artifact is not done until it is in that scan.
-- **Generated files are code:** review `mise.lock` and `go.sum` diffs. A changed checksum without
+- **Generated files are code:** review `go.sum`, `Cargo.lock` and lockfile diffs. A changed checksum without
   a version change is a red flag.
 - No third-party GitHub Actions besides `actions/checkout`; scanners run as pinned containers.
 - No new Go module or Rust crate without a decision record: licence (no AGPL, BSL, NC, ND surprises),

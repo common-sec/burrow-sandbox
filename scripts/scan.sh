@@ -51,15 +51,18 @@ scan_image() {
   tar=.cache/images/$(echo "$img" | tr '/:' '__').tar
   rm -f "$tar"
   "$engine" save -o "$tar" "$img"
+  # Trivy copies large files (agent binaries of 200 MB and more) to its temp folder: use the
+  # on-disk cache, not the small in-memory /tmp.
+  rm -rf .cache/trivy/tmp && mkdir -p .cache/trivy/tmp
   # shellcheck disable=SC2086
-  "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" "$TRIVY" \
+  "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" -e TMPDIR=/cache/tmp "$TRIVY" \
     image --cache-dir /cache --no-progress --skip-version-check --disable-telemetry --exit-code 1 \
     --scanners secret --input "/work/$tar"
   # shellcheck disable=SC2086
-  "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" "$TRIVY" \
+  "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" -e TMPDIR=/cache/tmp "$TRIVY" \
     image --cache-dir /cache --no-progress --skip-version-check --disable-telemetry --exit-code "$2" \
     --severity HIGH,CRITICAL --scanners vuln --ignore-unfixed --input "/work/$tar"
-  rm -f "$tar"
+  rm -rf "$tar" .cache/trivy/tmp
 }
 # The sandbox images of the test presets (scripts/images.sh sandboxes). Secrets fail the scan;
 # vulnerabilities are reported but do not fail it: full Debian/Ubuntu/Kali bases always carry

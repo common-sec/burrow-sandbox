@@ -1,6 +1,7 @@
 # 0006: Makefile as the entry point, AGENTS.md for instructions, daily grouped Dependabot
 
-**Status:** proposed (2026-11-18). **Asked by:** J (review of PR #1).
+**Status:** proposed (2026-11-18); the mise parts superseded by
+[0010](0010-dev-tools-in-containers.md) (2026-11-22): tools now run in pinned images. **Asked by:** J (review of PR #1).
 
 ## 1. Makefile as the single entry point
 

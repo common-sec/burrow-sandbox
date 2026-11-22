@@ -52,8 +52,8 @@ and logs JSON to stderr. The image (`packaging/forward/Dockerfile`) builds in
 
 ## Consequences and gaps
 
-- Rust is not installed on the host: it lives only in the build image, so `mise.toml` does not
-  change. Dependabot watches the base image (docker) and `Cargo.lock` (cargo).
+- Rust is not installed on the host: it lives only in the build image, as every other tool now does
+  ([0010](0010-dev-tools-in-containers.md)). Dependabot watches the base image (docker) and `Cargo.lock` (cargo).
 - Building needs network inside the build (rustup components for clippy and rustfmt). In networks
   that block it, the e2e was run with a local variant without those steps (TESTING.md).
 - The reproducibility of the Rust build is not checked yet (*gap*, with releases).

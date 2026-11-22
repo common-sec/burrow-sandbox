@@ -1,6 +1,6 @@
 #!/bin/sh
-# Static, reproducible binaries for every product and platform into dist/ (run by `make build`).
-# CGO_ENABLED=0 and -trimpath come from mise.toml; -buildid= and the commit date make the output
+# Static, reproducible binaries for every product and platform into dist/ (run by `make build`, inside packaging/burrow/Dockerfile).
+# CGO_ENABLED=0 and -trimpath come from the build image (packaging/burrow/Dockerfile); -buildid= and the commit date make the output
 # depend only on the source.
 set -eu
 cd "$(dirname "$0")/.."

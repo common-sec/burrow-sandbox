@@ -134,17 +134,18 @@ Windows: [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Security practices
 
-- **Everything pinned:** tools in `mise.toml` + `mise.lock` (checksums), images by digest, Actions
-  by commit SHA, Go modules by `go.sum`. New versions only after a **7-day cooldown** (mise
-  `minimum_release_age`, Dependabot `cooldown`).
+- **Nothing installed on the host:** every tool (Go, golangci-lint, Rust, the scanners) runs in a
+  container pinned by digest; you need only Podman and make.
+- **Everything pinned:** images by digest, Actions by commit SHA, Go modules by `go.sum`, agent
+  packages by lockfiles with hashes. New versions only after a **7-day cooldown** (Dependabot
+  `cooldown`).
 - **Local first:** `make check` (lint, tests, govulncheck, build, the Rust forwarder) and
   `make scan` (govulncheck, TruffleHog, Semgrep, Trivy on the repository and on the images we
   build, in locked-down containers) are what CI runs. `make hooks` runs them
   before every push.
 - **Dependabot** every day: minor and patch grouped, security updates grouped, reviewed by the
   security team (CODEOWNERS).
-- **No third-party Actions** besides GitHub's checkout; mise is installed from a checksum-verified
-  release.
+- **No third-party Actions** besides GitHub's checkout; nothing is installed on the runner.
 - Reporting vulnerabilities: [SECURITY.md](SECURITY.md).
 
 Design background, requirements and measurements: the
