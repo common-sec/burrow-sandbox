@@ -11,6 +11,9 @@
   their sandbox; `ENV`, `CAP_ADD` (short list), `DESCRIPTION`, several caches scoped per sandbox.
 - `burrow presets list`, `presets search TERM`, `presets info PRESET`. No built-in presets: they
   come from the presets folder or a path; test presets with their own Dockerfiles in `test/`.
+- Sandbox presets with agents (claude, codex, opencode, pi, hermes) and distributions (ubuntu,
+  kali), from pinned bases and lockfiles with hashes; built and scanned weekly (decision 0009).
+- burrow checks Podman (4.9+, netavark) before creating anything.
 - Temporary proxy (CONNECT, host allowlist, no private addresses) and a port forwarder in Rust
   (decision 0008); a dedicated egress network per proxy.
 - Local-first checks and scans through a Makefile, CI running the same targets, daily Dependabot

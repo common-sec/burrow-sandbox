@@ -1,0 +1,11 @@
+# OpenAI Codex CLI in a persistent sandbox: burrow run codex --name dev, then burrow shell dev -- codex
+# Credentials: log in inside the sandbox; the token stays in its home volume (burrow-NAME-home),
+# never on the host and never in this file. Secrets through the proxy are on the roadmap (0.3).
+# ALLOW: the hosts the agent needs for its API and login, from the vendor's documentation
+# (*unverified*: check them on first use). A sandbox file's ALLOW replaces this list.
+NAME=codex
+DESCRIPTION=OpenAI Codex CLI agent sandbox (test preset)
+IMAGE=localhost/burrow-test-codex:dev
+WORKSPACE_MODE=rw
+NETWORK=proxy
+ALLOW=api.openai.com,auth.openai.com,chatgpt.com

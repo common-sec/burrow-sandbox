@@ -28,6 +28,8 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ✓ | Temporary proxy in Go (CONNECT, host allowlist, ports, no IP literals, no private addresses, JSON audit log) until a proxy solution is chosen; not extended except for tests or investigations | R7 (stand-in) |
 | ✓ | End-to-end checks on real rootless Podman, blocked checks only pass when the command ran | R12 |
 | ✓ | Base repository: pins, lockfile, cooldown, local-first checks and scans (code and images) through a Makefile, CI, daily grouped Dependabot reviewed by the security team, a daily workflow for the mise pin, AGENTS.md | D1, D2, D5 |
+| ✓ | Sandbox presets with agents and distributions: claude, codex, opencode, pi, hermes, ubuntu, kali, alpine (test presets, [0009](decisions/0009-agent-sandboxes.md)) | W5, R8 |
+| ✓ | Podman check at start: version 4.9+ and the netavark backend | R2, O7 |
 | ○ | Replace `scripts/scan.sh` and `compose.yaml` with burrow itself (scanners as presets, a burrow sandbox deployment) once released | D2, D6 |
 | ○ | Tested on Windows with the WSL backend and the Hyper-V backend; differences written down | R2, E1, D6 |
 

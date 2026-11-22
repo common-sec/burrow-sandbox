@@ -1,0 +1,7 @@
+# A plain Ubuntu sandbox: burrow run ubuntu --name dev, then burrow shell dev -- bash
+# Nothing allowed out until your sandbox file allows it.
+NAME=ubuntu
+DESCRIPTION=Ubuntu 24.04 sandbox with a shell (test preset)
+IMAGE=localhost/burrow-test-ubuntu:dev
+WORKSPACE_MODE=rw
+NETWORK=proxy

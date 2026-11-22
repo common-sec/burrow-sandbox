@@ -14,6 +14,21 @@
 > Hyper-V backend, which shares only the folders you name. WSL stays on the list only to be tested
 > and hardened (exception E1, below).
 
+> **Status on Windows (2026-11-22, from J's tests).** Neither setup works out of the box yet:
+>
+> - **Hyper-V and WSL Podman machines cannot build Go from a shared folder.** The share has no
+>   file locking, and Go locks `go.mod` (`go: RLock /work/go.mod: function not implemented`).
+>   To fix or work around (see "Known issues"); building burrow itself works with
+>   `sh scripts/build-in-container.sh`, which never uses the share.
+> - **Podman inside a WSL distro** (not a machine) is where the work so far has been done, with the
+>   repository under `/mnt/c/...`. Ubuntu 22.04's Podman 3.4.4 is too old: its CNI network
+>   backend fails on burrow's networks (`plugin firewall does not support config version
+>   "1.0.0"`). Use a distro with Podman 4.9+ and netavark (Ubuntu 24.04), and keep the repository
+>   in the distro's own disk (`~/src`), not under `/mnt/c`. burrow now refuses older Podman or
+>   CNI at start and says so.
+> - **Do not install mise, Go or other tools on the Windows host** to work around this: keeping
+>   tools off the host is the point. Everything builds in pinned containers (README, "Try it").
+
 **macOS:** discovery is pending. The Podman machine there is also a VM with shared folders, so the
 same rule applies (share one work folder only). Trying it, finding the security issues and
 recommending an install and usage path is on the [roadmap](ROADMAP.md) (0.2).
@@ -73,6 +88,11 @@ below before putting any real work in it.
 6. Rights needed, and what an enterprise policy blocks.
 
 ## Known issues
+
+**`plugin firewall does not support config version "1.0.0"` / `CNI network ... not found`.**
+Podman older than 4.9 with the CNI backend (Ubuntu 22.04 ships 3.4.4). burrow checks this before
+it creates anything (`podman info`: version and network backend). Fix: Podman 4.9+ with netavark;
+on WSL, a new Ubuntu 24.04 distro: `wsl --install -d Ubuntu-24.04`, then `sudo apt install podman`.
 
 **`go: RLock /work/go.mod: function not implemented` (and other tools that lock files).** The
 folder a Podman machine shares from the host (9p with Hyper-V, virtiofs on macOS) does not

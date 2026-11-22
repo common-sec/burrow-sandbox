@@ -60,6 +60,13 @@ updates:
       - /test/images/alpine
       - /test/images/curl
       - /test/images/trivy
+      - /test/images/ubuntu
+      - /test/images/kali
+      - /test/images/claude
+      - /test/images/codex
+      - /test/images/opencode
+      - /test/images/pi
+      - /test/images/hermes
     schedule:
       interval: daily
     cooldown:
@@ -74,6 +81,48 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "deps(docker)"
+
+  # Agents in the sandbox images (test/images/<agent>/package-lock.json, exact versions with
+  # integrity hashes). One grouped PR for minor and patch; majors one by one.
+  - package-ecosystem: npm
+    directories:
+      - /test/images/claude
+      - /test/images/codex
+      - /test/images/opencode
+      - /test/images/pi
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(npm)"
+
+  # Hermes Agent and its dependencies (test/images/hermes/requirements.txt, hashes). Dependabot
+  # updates requirements.txt; regenerate the hashes from requirements.in if a PR leaves them stale.
+  - package-ecosystem: pip
+    directory: /test/images/hermes
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(pip)"
 
   # Scanner images (compose.yaml, pinned by tag + digest).
   # Remove this entry when burrow replaces compose.yaml (scanners as burrow presets).

@@ -108,6 +108,15 @@ func run(argv []string) error {
 	find := func(ref string) (*config.Preset, error) { return config.FindPreset(ref, userPresets) }
 
 	cmd, rest := args[0], args[1:]
+	// Commands that create containers or networks first check the Podman they talk to.
+	if !*dry {
+		switch cmd {
+		case "up", "run", "exec", "port":
+			if err := sandbox.Preflight(ctx, runner); err != nil {
+				return err
+			}
+		}
+	}
 	sub := flag.NewFlagSet("burrow "+cmd, flag.ContinueOnError)
 	sub.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	switch cmd {

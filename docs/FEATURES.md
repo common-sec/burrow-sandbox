@@ -32,6 +32,9 @@ reviewer** checks what burrow allows.
 | U13 | As a developer, I list, search and inspect the presets I have (`burrow presets list/search/info`). | `config.TestFindAndListPresets`, `config.TestTestPresetsAndExample`, `main.TestDryRunCommands` |
 | U14 | As a developer, my tools keep their caches between runs, and a tool next to another sandbox cannot read or poison them. | `sandbox.TestExecPresetOwnProxyAndCleanup`, `TestPortAndDown` (purge) |
 
+| U18 | As a developer, I start a sandbox with an agent already in it (`burrow run claude`, or codex, opencode, pi, hermes; or a plain ubuntu or kali), pinned and scanned, so that I do not install the agent on my machine. | `sandboxes.yml` (build, `--version` as uid 1000 with no capabilities, scan); `config.TestTestPresetsAndExample` |
+| U19 | As a developer, burrow tells me at once when my Podman is too old or uses the CNI backend, instead of failing inside podman. | `sandbox.TestCheckEngine`, `TestPreflightAsksPodmanInfo` |
+
 ## Isolation between sandboxes
 
 | # | Story | Proved by |

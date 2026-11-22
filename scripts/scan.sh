@@ -1,6 +1,6 @@
 #!/bin/sh
 # Security scans, local first: the same containers run here and in CI.
-#   sh scripts/scan.sh all|secrets|sast|deps|images
+#   sh scripts/scan.sh all|secrets|sast|deps|images|sandboxes [IMAGE...]
 # Every scanner runs from an image pinned by digest, as a non-root user, with no capabilities, a
 # read-only root filesystem and the repository mounted read-only. The secrets scan has no network.
 # ENGINE=podman (default) or docker.
@@ -45,21 +45,40 @@ deps() {
     --severity HIGH,CRITICAL --scanners vuln,misconfig,secret \
     --skip-dirs /work/.cache --skip-dirs /work/dist --skip-dirs /work/crates/burrow-forward/target /work
 }
+# scan_image IMAGE VULN_EXIT: secrets always fail the scan; vulnerabilities fail it when VULN_EXIT=1.
+scan_image() {
+  img=$1
+  tar=.cache/images/$(echo "$img" | tr '/:' '__').tar
+  rm -f "$tar"
+  "$engine" save -o "$tar" "$img"
+  # shellcheck disable=SC2086
+  "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" "$TRIVY" \
+    image --cache-dir /cache --no-progress --skip-version-check --disable-telemetry --exit-code 1 \
+    --scanners secret --input "/work/$tar"
+  # shellcheck disable=SC2086
+  "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" "$TRIVY" \
+    image --cache-dir /cache --no-progress --skip-version-check --disable-telemetry --exit-code "$2" \
+    --severity HIGH,CRITICAL --scanners vuln --ignore-unfixed --input "/work/$tar"
+  rm -f "$tar"
+}
+# The sandbox images of the test presets (scripts/images.sh sandboxes). Secrets fail the scan;
+# vulnerabilities are reported but do not fail it: full Debian/Ubuntu/Kali bases always carry
+# some, and they are fixed by updating the pinned base (Dependabot), not here (decision 0009).
+sandboxes() {
+  echo "== sandbox images (trivy: secrets fail; vulnerabilities reported)"
+  mkdir -p .cache/images
+  [ $# -gt 0 ] || set -- alpine curl trivy ubuntu kali claude codex opencode pi hermes
+  for n in "$@"; do scan_image "localhost/burrow-test-$n:dev" 0; done
+}
 images() {
   echo "== images (trivy: vulnerabilities and secrets in every image we build)"
   mkdir -p .cache/images
-  for img in localhost/burrow-proxy:dev localhost/burrow-forward:dev; do
-    tar=.cache/images/$(echo "$img" | tr '/:' '__').tar
-    rm -f "$tar"
-    "$engine" save -o "$tar" "$img"
-    # shellcheck disable=SC2086
-    "$engine" run $harden $userflag -v "$repo:/work:ro" -v "$repo/.cache/trivy:/cache" "$TRIVY" \
-      image --cache-dir /cache --no-progress --skip-version-check --disable-telemetry --exit-code 1 \
-      --severity HIGH,CRITICAL --scanners vuln,secret --input "/work/$tar"
-  done
+  for img in localhost/burrow-proxy:dev localhost/burrow-forward:dev; do scan_image "$img" 1; done
 }
-case "${1:-all}" in
+what=${1:-all}; [ $# -gt 0 ] && shift
+case $what in
   all) secrets; sast; deps; images ;;
-  secrets|sast|deps|images) "$1" ;;
-  *) echo "usage: $0 all|secrets|sast|deps|images" >&2; exit 2 ;;
+  secrets|sast|deps|images) "$what" ;;
+  sandboxes) sandboxes "$@" ;;
+  *) echo "usage: $0 all|secrets|sast|deps|images|sandboxes [NAME...]" >&2; exit 2 ;;
 esac
