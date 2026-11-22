@@ -27,6 +27,14 @@
 >   "1.0.0"`). Use a distro with Podman 4.9+ and netavark (Ubuntu 24.04), and keep the repository
 >   in the distro's own disk (`~/src`), not under `/mnt/c`. burrow now refuses older Podman or
 >   CNI at start and says so.
+>   J also needed this in `~/.config/containers/containers.conf` for Podman in WSL to work
+>   (*why is unverified*; likely a distro without systemd, so no systemd cgroup manager):
+>
+>   ```toml
+>   [engine]
+>   cgroup_manager = "cgroupfs"
+>   runtime = "crun"
+>   ```
 > - **Do not install mise, Go or other tools on the Windows host** to work around this: keeping
 >   tools off the host is the point. Everything builds in pinned containers (README, "Try it").
 
