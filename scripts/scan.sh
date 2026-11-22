@@ -11,10 +11,11 @@ engine=${ENGINE:-podman}
 command -v "$engine" >/dev/null 2>&1 || engine=docker
 repo=$(pwd)
 mkdir -p .cache/trivy
-# Images come from compose.yaml (pinned by tag and digest; Dependabot keeps them current).
-img() { awk -v svc="  $1:" '$0==svc{f=1;next} f&&/image:/{print $2; exit}' compose.yaml; }
+# Images come from packaging/scanners/Dockerfile (pinned by tag and digest; Dependabot keeps them
+# current): the FROM line of the stage with that name.
+img() { awk -v s="$1" '$1=="FROM" && $3=="AS" && $4==s {print $2; exit}' packaging/scanners/Dockerfile; }
 TRUFFLEHOG=$(img trufflehog); SEMGREP=$(img semgrep); TRIVY=$(img trivy)
-case "$TRUFFLEHOG$SEMGREP$TRIVY" in *@sha256:*@sha256:*@sha256:*) ;; *) echo "scan: unpinned image in compose.yaml" >&2; exit 2 ;; esac
+case "$TRUFFLEHOG$SEMGREP$TRIVY" in *@sha256:*@sha256:*@sha256:*) ;; *) echo "scan: unpinned image in packaging/scanners/Dockerfile" >&2; exit 2 ;; esac
 
 harden="--rm --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,size=512m -e HOME=/tmp"
 # Podman: keep the host user's id, so the read-only mount is readable without relabelling.

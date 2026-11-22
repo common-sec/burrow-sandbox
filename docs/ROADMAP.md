@@ -30,7 +30,7 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ✓ | Base repository: pins, lockfile, cooldown, local-first checks and scans (code and images) through a Makefile, CI, daily grouped Dependabot reviewed by the security team, AGENTS.md | D1, D2, D5 |
 | ✓ | Sandbox presets with agents and distributions: claude, codex, opencode, pi, hermes, ubuntu, kali, alpine (test presets, [0009](decisions/0009-agent-sandboxes.md)) | W5, R8 |
 | ✓ | Podman check at start: version 4.9+ and the netavark backend | R2, O7 |
-| ○ | Replace `scripts/scan.sh` and `compose.yaml` with burrow itself (scanners as presets, a burrow sandbox deployment) once released | D2, D6 |
+| ○ | Replace `scripts/scan.sh` with burrow itself (scanners as presets) once released | D2, D6 |
 | ○ | Tested on Windows with the WSL backend and the Hyper-V backend; differences written down | R2, E1, D6 |
 
 ## 0.2 Platforms

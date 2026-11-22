@@ -59,6 +59,7 @@ updates:
       - /packaging/dev
       - /packaging/burrow
       - /packaging/forward
+      - /packaging/scanners
       - /test/images/alpine
       - /test/images/curl
       - /test/images/trivy
@@ -125,25 +126,6 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "deps(pip)"
-
-  # Scanner images (compose.yaml, pinned by tag + digest).
-  # Remove this entry when burrow replaces compose.yaml (scanners as burrow presets).
-  - package-ecosystem: docker-compose
-    directory: /
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        applies-to: version-updates
-        update-types: [minor, patch]
-        patterns: ["*"]
-      security:
-        applies-to: security-updates
-        patterns: ["*"]
-    commit-message:
-      prefix: "deps(compose)"
 
   # GitHub Actions (pinned by commit SHA).
   - package-ecosystem: github-actions

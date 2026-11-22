@@ -3,7 +3,6 @@
 # in the common-sec organisation and have write access to this repository.
 go.mod                    @common-sec/security
 go.sum                    @common-sec/security
-compose.yaml              @common-sec/security
 /packaging/               @common-sec/security
 /test/images/             @common-sec/security
 /test/presets/            @common-sec/security

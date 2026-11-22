@@ -39,6 +39,10 @@ pinned containers.
   read-write, no network, no capabilities, read-only root, as the developer's own user. The only
   step that writes the working tree.
 - `make e2e` uses the binary from `make build`, so the host needs no Go.
+- The scanner images (TruffleHog, Semgrep, Trivy) move from `compose.yaml` to the FROM lines of
+  `packaging/scanners/Dockerfile` (J: "remove all docker compose"). `scripts/scan.sh` reads them
+  by stage name; Dependabot's docker ecosystem replaces its docker-compose one. Nothing used
+  compose itself: the file only held the pins.
 - `mise.toml`, `mise.lock`, `scripts/install-mise.sh`, `scripts/update-mise.sh` and the daily
   `update-pins.yml` workflow are removed. `.containerignore` keeps `.git`, `.cache`, `dist` and
   Rust's `target` out of every build context.

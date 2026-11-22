@@ -11,7 +11,7 @@ by digest:
   Podman machine's shared folder. vet, lint and tests run with no network; govulncheck reads
   vuln.go.dev.
 - `make build` builds the binaries in `packaging/burrow/Dockerfile`; `make forward` checks and
-  builds the Rust forwarder in its image; the scanners are pinned containers (`compose.yaml`).
+  builds the Rust forwarder in its image; the scanners are pinned containers (`packaging/scanners/Dockerfile`).
 - `make fmt` is the one step that mounts the repository (read-write, no network, no capabilities,
   your own user), because it writes the files back.
 
@@ -79,7 +79,7 @@ pinned images provide the tools ([decision 0010](decisions/0010-dev-tools-in-con
 
 | What | How | Automated |
 |---|---|---|
-| Go modules (govulncheck included), Rust crates, base images and developer tools (`packaging/`, including `packaging/dev`: Go and golangci-lint), test images and their npm/pip lockfiles (`test/images/`), scanner images (`compose.yaml`), Actions | Dependabot, daily, 7-day cooldown; minor+patch grouped per ecosystem, security updates grouped; reviewed by the security team (CODEOWNERS) | yes |
+| Go modules (govulncheck included), Rust crates, base images and developer tools (`packaging/`, including `packaging/dev`: Go and golangci-lint), test images and their npm/pip lockfiles (`test/images/`), scanner images (`packaging/scanners`), Actions | Dependabot, daily, 7-day cooldown; minor+patch grouped per ecosystem, security updates grouped; reviewed by the security team (CODEOWNERS) | yes |
 | Image constants in Go tests (`internal/*/..._test.go`) | edit by hand when the test images change | **no** (issue #7) |
 
 **Security fixes skip the cooldown.** Go modules, crates, images (the Go and golangci-lint images

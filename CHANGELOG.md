@@ -16,7 +16,8 @@
 - burrow checks Podman (4.9+, netavark) before creating anything.
 - Nothing is installed on the host: vet, golangci-lint, tests, govulncheck, fmt and the build run
   in pinned images (`packaging/dev/Dockerfile`); mise, `mise.lock` and its installer are gone
-  (decision 0010).
+  (decision 0010). The scanner pins moved from `compose.yaml` to
+  `packaging/scanners/Dockerfile`.
 - Temporary proxy (CONNECT, host allowlist, no private addresses) and a port forwarder in Rust
   (decision 0008); a dedicated egress network per proxy.
 - Local-first checks and scans through a Makefile, CI running the same targets, daily Dependabot
