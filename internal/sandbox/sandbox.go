@@ -45,6 +45,33 @@ func image(ref string) []string {
 	return []string{"--pull=missing", ref}
 }
 
+// requireImages fails before anything is created when a local (localhost/) image is not built,
+// and names the make target that builds it. Registry images are not checked here: they are
+// pinned by digest and pulled on first use, and a failed pull is cleaned up like any failure.
+func (m *Manager) requireImages(ctx context.Context, refs ...string) error {
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref, "localhost/") {
+			continue
+		}
+		if _, err := m.Podman.Output(ctx, "image", "exists", ref); err != nil {
+			return fmt.Errorf("image %s is not built (burrow never pulls localhost/ images): run %s",
+				ref, buildHint(ref))
+		}
+	}
+	return nil
+}
+
+func buildHint(ref string) string {
+	switch {
+	case strings.HasPrefix(ref, "localhost/burrow-test-"):
+		return "`make test-images` (alpine, curl, trivy) or `make sandbox-images` (agents, distributions); without make, see README \"Try it\""
+	case strings.HasPrefix(ref, "localhost/burrow-"):
+		return "`make images` (proxy, forwarder); without make, see README \"Try it\""
+	default:
+		return "the build for that image"
+	}
+}
+
 // Manager runs sandboxes and tools.
 type Manager struct {
 	Podman   podman.Runner
@@ -92,20 +119,37 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 		}
 		e.Workspace = abs
 	}
+	if err := m.requireImages(ctx, e.Image, e.ProxyImage); err != nil {
+		return err
+	}
 	if err := m.saveEnv(e); err != nil {
 		return err
 	}
-	net := netName(e.Name)
-	proxyIP, err := m.startProxy(ctx, e.Name, net, e.ProxyImage, e.Allow)
+	// No sandbox container exists (checked above), so anything else with this sandbox's label is
+	// left from an earlier start that failed or was interrupted: remove it first.
+	if err := m.removeAll(ctx, e.Name); err != nil {
+		return err
+	}
+	if err := m.start(ctx, e); err != nil {
+		// Leave nothing half-made behind (a network without its proxy blocks the next start). The
+		// definition and the home volume stay, as after `burrow down`.
+		if cerr := m.removeAll(context.WithoutCancel(ctx), e.Name); cerr != nil {
+			return fmt.Errorf("%w (cleanup failed too: %w; run `burrow down %s`)", err, cerr, e.Name)
+		}
+		return err
+	}
+	return nil
+}
+
+func (m *Manager) start(ctx context.Context, e *config.Env) error {
+	proxyIP, err := m.startProxy(ctx, e.Name, netName(e.Name), e.ProxyImage, e.Allow)
 	if err != nil {
 		return err
 	}
 	args := append([]string{"run", "-d", "--name", sandboxName(e.Name)}, m.sandboxFlags(e, proxyIP)...)
 	args = append(append(args, image(e.Image)...), "sleep", "infinity")
-	if _, err := m.Podman.Output(ctx, args...); err != nil {
-		return err
-	}
-	return nil
+	_, err = m.Podman.Output(ctx, args...)
+	return err
 }
 
 // startProxy creates an internal network, a dedicated egress network and the proxy that joins
@@ -265,6 +309,13 @@ type ExecOptions struct {
 func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Preset, extra []string, o ExecOptions) (err error) {
 	r, err := m.resolveTool(name, workspace, p, o)
 	if err != nil {
+		return err
+	}
+	need := []string{p.Image}
+	if r.network == config.NetworkProxy {
+		need = append(need, r.proxyImage)
+	}
+	if err := m.requireImages(ctx, need...); err != nil {
 		return err
 	}
 	id, err := randomID()
@@ -437,6 +488,9 @@ func (m *Manager) Port(ctx context.Context, name string, ctrPort, hostPort int) 
 			return fmt.Errorf("port %d out of range", p)
 		}
 	}
+	if err := m.requireImages(ctx, e.ForwardImage); err != nil {
+		return err
+	}
 	ip, err := m.ipOn(ctx, sandboxName(e.Name), netName(e.Name))
 	if err != nil {
 		return err
@@ -464,6 +518,30 @@ func (m *Manager) Down(ctx context.Context, name string, purge bool) error {
 	if _, err := m.loadEnv(name); err != nil {
 		return err
 	}
+	if err := m.removeAll(ctx, name); err != nil {
+		return err
+	}
+	if purge {
+		vols, err := m.Podman.Output(ctx, "volume", "ls", "--format", "{{.Name}}")
+		if err != nil {
+			return err
+		}
+		rm := []string{homeVolume(name)}
+		for _, v := range strings.Fields(vols) {
+			if strings.HasPrefix(v, CacheVolume(name, "")) {
+				rm = append(rm, v) // the sandbox's caches
+			}
+		}
+		if _, err := m.Podman.Output(ctx, append([]string{"volume", "rm", "-f"}, rm...)...); err != nil {
+			return err
+		}
+		return os.Remove(m.envPath(name))
+	}
+	return nil
+}
+
+// removeAll removes every container and network labelled with the sandbox's name.
+func (m *Manager) removeAll(ctx context.Context, name string) error {
 	ids, err := m.Podman.Output(ctx, "ps", "-a", "-q", "--filter", "label="+labelEnv+"="+name)
 	if err != nil {
 		return err
@@ -481,22 +559,6 @@ func (m *Manager) Down(ctx context.Context, name string, purge bool) error {
 		if _, err := m.Podman.Output(ctx, "network", "rm", "-f", n); err != nil {
 			return err
 		}
-	}
-	if purge {
-		vols, err := m.Podman.Output(ctx, "volume", "ls", "--format", "{{.Name}}")
-		if err != nil {
-			return err
-		}
-		rm := []string{homeVolume(name)}
-		for _, v := range strings.Fields(vols) {
-			if strings.HasPrefix(v, CacheVolume(name, "")) {
-				rm = append(rm, v) // the sandbox's caches
-			}
-		}
-		if _, err := m.Podman.Output(ctx, append([]string{"volume", "rm", "-f"}, rm...)...); err != nil {
-			return err
-		}
-		return os.Remove(m.envPath(name))
 	}
 	return nil
 }

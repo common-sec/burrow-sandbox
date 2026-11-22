@@ -66,7 +66,8 @@ func (c *CLI) Attach(ctx context.Context, args ...string) error {
 type Recorder struct {
 	Calls   [][]string
 	Replies map[string]string
-	Out     io.Writer // when set (--dry-run), commands are printed
+	Fail    map[string]error // a command starting with this prefix fails with the error (tests)
+	Out     io.Writer        // when set (--dry-run), commands are printed
 }
 
 // Output implements Runner.
@@ -76,6 +77,11 @@ func (r *Recorder) Output(_ context.Context, args ...string) (string, error) {
 		_, _ = fmt.Fprintln(r.Out, Quote("podman", args))
 	}
 	joined := strings.Join(args, " ")
+	for prefix, err := range r.Fail {
+		if strings.HasPrefix(joined, prefix) {
+			return "", err
+		}
+	}
 	best := ""
 	for prefix := range r.Replies {
 		if strings.HasPrefix(joined, prefix) && len(prefix) > len(best) {

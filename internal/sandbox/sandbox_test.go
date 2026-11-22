@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -363,5 +364,79 @@ func TestEveryRunSetsPullPolicy(t *testing.T) {
 	}
 	if runs < 4 { // proxy, sandbox, tool, forwarder
 		t.Fatalf("expected the proxy, sandbox, tool and forwarder runs, got %d", runs)
+	}
+}
+
+// U21: a start that fails (here: the sandbox image is missing) removes what it created, so the
+// next start does not hit "network already exists"; leftovers from an interrupted start are
+// removed before a new one.
+func TestUpCleansUpAfterFailure(t *testing.T) {
+	rec := &podman.Recorder{
+		Replies: map[string]string{
+			"inspect":                                     "10.89.0.2",
+			"ps -a -q --filter label=burrow.env=dev":      "",
+			"network ls -q --filter label=burrow.env=dev": "burrow-dev burrow-dev-egress",
+		},
+		Fail: map[string]error{"run -d --name burrow-dev --network": errors.New("image not known")},
+	}
+	m := &Manager{Podman: rec, StateDir: t.TempDir()}
+	e := &config.Env{
+		Name: "dev", Image: "localhost/burrow-test-alpine:dev", WorkspaceMode: config.WorkspaceNone,
+		Allow: []string{"pypi.org"}, Engine: config.EngineCrun, RunAs: "1000:1000",
+		ProxyImage: config.DefaultProxyImage, ForwardImage: config.DefaultForwardImage,
+	}
+	if err := m.Up(context.Background(), e); err == nil || !strings.Contains(err.Error(), "image not known") {
+		t.Fatalf("want the podman error, got %v", err)
+	}
+	var rmBefore, rmAfter, created bool
+	for _, c := range rec.Calls {
+		switch {
+		case has(c, "network", "create"):
+			created = true
+		case has(c, "network", "rm", "-f", "burrow-dev") && !created:
+			rmBefore = true
+		case has(c, "network", "rm", "-f", "burrow-dev") && created:
+			rmAfter = true
+		}
+	}
+	if !rmBefore || !rmAfter {
+		t.Fatalf("leftovers removed before: %v, after the failure: %v; calls: %v", rmBefore, rmAfter, rec.Calls)
+	}
+}
+
+// U20: a local image that is not built stops the start before anything is created, and the
+// error names the make target; registry images are not checked (pulled on first use).
+func TestUpRequiresLocalImages(t *testing.T) {
+	for _, c := range []struct {
+		img, want string
+		fails     bool
+	}{
+		{"localhost/burrow-test-alpine:dev", "make test-images", true},
+		{"localhost/burrow-proxy:dev", "make images", true}, // only the proxy image is missing
+		{pinned, "", false},
+	} {
+		rec := &podman.Recorder{
+			Replies: map[string]string{"inspect": "10.89.0.2"},
+			Fail:    map[string]error{"image exists " + c.img: errors.New("exit status 1")},
+		}
+		m := &Manager{Podman: rec, StateDir: t.TempDir()}
+		e := &config.Env{
+			Name: "dev", Image: "localhost/burrow-test-alpine:dev", WorkspaceMode: config.WorkspaceNone,
+			Engine: config.EngineCrun, RunAs: "1000:1000",
+			ProxyImage: config.DefaultProxyImage, ForwardImage: config.DefaultForwardImage,
+		}
+		err := m.Up(context.Background(), e)
+		if !c.fails {
+			if err != nil {
+				t.Fatalf("%s: %v", c.img, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%s: want an error naming %q, got %v", c.img, c.want, err)
+		}
+		if find(rec, "network", "create") != nil || find(rec, "run") != nil {
+			t.Fatalf("%s: created something before failing: %v", c.img, rec.Calls)
+		}
 	}
 }
