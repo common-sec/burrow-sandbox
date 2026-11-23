@@ -5,6 +5,7 @@ import (
 	"flag"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -60,6 +61,30 @@ func TestHintForMissingLocalImage(t *testing.T) {
 	} {
 		if got := hint(errors.New(c.msg)) != ""; got != c.want {
 			t.Errorf("hint(%q) = %v, want %v", c.msg, got, c.want)
+		}
+	}
+}
+
+// U22: every run as root warns, and the warning names where root was asked for.
+func TestRootWarning(t *testing.T) {
+	for _, c := range []struct {
+		user, from string
+		warn       bool
+	}{
+		{"0:0", "--user", true},
+		{"0:1000", "RUN_AS in preset build (/p/build.preset)", true},
+		{"00:0", "RUN_AS in ./burrow.sandbox", true}, // leading zero is still root
+		{"1000:1000", "--user", false},
+		{"1000:0", "--user", false}, // gid 0 is not root
+		{"", "", false},
+		{"root", "--user", false}, // invalid, refused elsewhere
+	} {
+		w := rootWarning(c.user, c.from)
+		if (w != "") != c.warn {
+			t.Fatalf("rootWarning(%q, %q) = %q, want warning=%v", c.user, c.from, w, c.warn)
+		}
+		if c.warn && !strings.Contains(w, c.from) {
+			t.Fatalf("warning does not name its source %q: %q", c.from, w)
 		}
 	}
 }

@@ -46,7 +46,7 @@ func TestLoadEnvRejects(t *testing.T) {
 		"unknown key":     base + "NETWORK=host\n",
 		"duplicate":       base + "NAME=x\n",
 		"unpinned image":  "NAME=dev\nIMAGE=docker.io/library/alpine:3.22\nWORKSPACE_MODE=none\n",
-		"root":            base + "RUN_AS=0:0\n",
+		"user, no gid":    base + "RUN_AS=0\n",
 		"ip allow":        base + "ALLOW=1.1.1.1\n",
 		"wildcard all":    base + "ALLOW=*\n",
 		"port in allow":   base + "ALLOW=pypi.org:443\n",
@@ -205,8 +205,8 @@ func TestFindAndListPresets(t *testing.T) {
 	}
 }
 
-// U22: --user wins over RUN_AS and may be root; RUN_AS from a preset or file never may, and a
-// stored sandbox keeps where its user came from.
+// U22: --user wins over RUN_AS; root is allowed from either, and the sandbox remembers where
+// RUN_AS came from (for the warning).
 func TestNewSandboxUserOverride(t *testing.T) {
 	dir := t.TempDir()
 	p := &Preset{Name: "a", raw: map[string]string{"IMAGE": pinned, "RUN_AS": "1000:1000", "WORKSPACE_MODE": "none"}}
@@ -216,7 +216,7 @@ func TestNewSandboxUserOverride(t *testing.T) {
 	}{
 		{"", "1000:1000", true},
 		{"2000:2000", "2000:2000", true},
-		{"0:0", "0:0", true}, // root from --user only (decision 0011)
+		{"0:0", "0:0", true}, // root, with a warning (decision 0011)
 		{"root", "", false},
 		{"1000:1000\n", "", false},
 	} {
@@ -233,32 +233,52 @@ func TestNewSandboxUserOverride(t *testing.T) {
 	}
 }
 
-func TestRootOnlyFromTheFlag(t *testing.T) {
+// U22: root (uid 0) is accepted from a preset, a sandbox file and --user (decision 0011), and
+// RunAsFrom says which one won; a malformed uid:gid is still refused, and a stored root sandbox
+// loads back (USER_FLAG from earlier builds is ignored).
+func TestRootFromAnySource(t *testing.T) {
 	dir := t.TempDir()
-	p := &Preset{Name: "a", raw: map[string]string{"IMAGE": pinned, "RUN_AS": "0:0", "WORKSPACE_MODE": "none"}}
-	if _, err := NewSandbox(p, nil, dir, Overrides{Name: "tt"}); err == nil {
-		t.Fatal("RUN_AS=0:0 in a preset was accepted")
+	root := &Preset{Name: "a", Source: "/p/a.preset", raw: map[string]string{"IMAGE": pinned, "RUN_AS": "0:0", "WORKSPACE_MODE": "none"}}
+	plain := &Preset{Name: "b", Source: "/p/b.preset", raw: map[string]string{"IMAGE": pinned, "WORKSPACE_MODE": "none"}}
+	for _, c := range []struct {
+		name     string
+		p        *Preset
+		file     map[string]string
+		user     string
+		want     string
+		wantFrom string
+		ok       bool
+	}{
+		{"preset", root, nil, "", "0:0", "RUN_AS in preset a (/p/a.preset)", true},
+		{"file", plain, map[string]string{"RUN_AS": "0:0"}, "", "0:0", "RUN_AS in the sandbox file", true},
+		{"file over preset", root, map[string]string{"RUN_AS": "1000:1000"}, "", "1000:1000", "RUN_AS in the sandbox file", true},
+		{"flag over preset", root, nil, "2000:2000", "2000:2000", "--user", true},
+		{"flag", plain, nil, "0:0", "0:0", "--user", true},
+		{"default", plain, nil, "", "1000:1000", "", true},
+		{"name", plain, map[string]string{"RUN_AS": "root"}, "", "", "", false},
+		{"no gid", plain, map[string]string{"RUN_AS": "0"}, "", "", "", false},
+		{"injection", plain, map[string]string{"RUN_AS": "0:0 --privileged"}, "", "", "", false},
+	} {
+		e, err := NewSandbox(c.p, c.file, dir, Overrides{Name: "tt", RunAs: c.user})
+		if (err == nil) != c.ok {
+			t.Fatalf("%s: err %v, want ok=%v", c.name, err, c.ok)
+		}
+		if c.ok && (e.RunAs != c.want || e.RunAsFrom != c.wantFrom) {
+			t.Fatalf("%s: RUN_AS %s from %q, want %s from %q", c.name, e.RunAs, e.RunAsFrom, c.want, c.wantFrom)
+		}
 	}
-	if _, err := NewSandbox(nil, map[string]string{"IMAGE": pinned, "RUN_AS": "00:0", "WORKSPACE_MODE": "none"}, dir, Overrides{Name: "tt"}); err == nil {
-		t.Fatal("RUN_AS=00:0 in a sandbox file was accepted")
-	}
-	e, err := NewSandbox(nil, map[string]string{"IMAGE": pinned, "WORKSPACE_MODE": "none"}, dir, Overrides{Name: "tt", RunAs: "0:0"})
+	e, err := NewSandbox(root, nil, dir, Overrides{Name: "tt"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "tt.env")
-	if err := os.WriteFile(path, []byte(e.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	back, err := LoadEnv(path)
-	if err != nil || back.RunAs != "0:0" || !back.UserFlag {
-		t.Fatalf("stored root sandbox: %+v, %v", back, err)
-	}
-	// A stored file that says root without USER_FLAG (hand-edited) is refused.
-	if err := os.WriteFile(path, []byte(strings.ReplaceAll(e.String(), "USER_FLAG=\"true\"\n", "")), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadEnv(path); err == nil {
-		t.Fatal("RUN_AS=0:0 without USER_FLAG was loaded")
+	for _, extra := range []string{"", "USER_FLAG=\"true\"\n"} {
+		if err := os.WriteFile(path, []byte(e.String()+extra), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		back, err := LoadEnv(path)
+		if err != nil || back.RunAs != "0:0" {
+			t.Fatalf("stored root sandbox (%q): %+v, %v", extra, back, err)
+		}
 	}
 }
