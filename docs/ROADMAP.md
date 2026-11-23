@@ -28,7 +28,7 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ✓ | Temporary proxy in Go (CONNECT, host allowlist, ports, no IP literals, no private addresses, JSON audit log) until a proxy solution is chosen; not extended except for tests or investigations | R7 (stand-in) |
 | ✓ | End-to-end checks on real rootless Podman, blocked checks only pass when the command ran | R12 |
 | ✓ | Base repository: pins, lockfile, cooldown, local-first checks and scans (code and images) through a Makefile, CI, daily grouped Dependabot reviewed by the security team, AGENTS.md | D1, D2, D5 |
-| ✓ | Sandbox presets with agents and distributions: claude, codex, opencode, pi, hermes, ubuntu, kali, alpine (test presets, [0009](decisions/0009-agent-sandboxes.md)) | W5, R8 |
+| ✓ | Sandbox presets with agents and distributions: claude, codex, opencode, pi, hermes, ubuntu, kali, alpine (test presets, [0009](decisions/0009-agent-sandboxes.md); moved to [burrow-repo](https://github.com/common-sec/burrow-repo) on 2026-11-23, alpine stays a test preset) | W5, R8 |
 | ✓ | Podman check at start: version 4.9+ and the netavark backend | R2, O7 |
 | ○ | Replace `scripts/scan.sh` with burrow itself (scanners as presets) once released | D2, D6 |
 | ○ | Tested on Windows with the WSL backend and the Hyper-V backend; differences written down | R2, E1, D6 |
@@ -63,8 +63,8 @@ Legend: ✓ done · ◐ partly · ○ not started
 | | Item | Serves |
 |---|---|---|
 | ○ | Shims: `trivy` on PATH runs its preset (a preset with no default arguments, like `test/presets/trivy.preset`), so scripts work with and without burrow; policy decides host runs | R5, SB4 |
-| ○ | Preset index: prebuilt, published images and an index service to search and download presets (users and CI do not build them); override and configure existing presets, define new ones. Spike on how brew, winget, Debian, Nix and Docker Hub build and index, then a decision record on the architecture and on the repository (here or a dedicated one): issues #5 and #6 | R8, D1 |
-| ○ | Presets repository: images built from scratch, signed, pushed to a public OCI registry, usable without burrow | R8, D7 |
+| ◐ | Preset index: prebuilt, published images and an index service to search and download presets (users and CI do not build them); override and configure existing presets, define new ones. Spike on how brew, winget, Debian, Nix and Docker Hub build and index, then a decision record on the architecture and on the repository (here or a dedicated one): issues #5 and #6. Spike, contract and publish pipeline in [burrow-repo](https://github.com/common-sec/burrow-repo) (its decision 0001: a dedicated repository, an index branch); burrow reading the index, overrides and the lock are still open | R8, D1 |
+| ◐ | Presets repository ([burrow-repo](https://github.com/common-sec/burrow-repo)): images built from scratch, signed, pushed to a public OCI registry, usable without burrow | R8, D7 |
 | ○ | Decide how tools get into a sandbox (mise inside it, or only to build preset images) | W6 |
 | ○ | Host runs only by policy (fail closed) | R3 |
 | ○ | Definition format decision (KEY=VALUE today; TOML, YAML, or Podman's own) | 0003 |

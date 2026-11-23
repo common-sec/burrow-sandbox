@@ -59,9 +59,9 @@ variables), are on the [roadmap](ROADMAP.md).
 user's presets folder (`burrow presets` prints it; `BURROW_PRESETS_DIR` overrides it). Never the
 workspace, which the agent can write. `burrow presets list`, `presets search TERM` and
 `presets info PRESET` show what is there. There are no presets built into burrow; prebuilt,
-published presets with an index are planned (roadmap 0.4). Test presets: [test/presets](../test/presets/):
-sandboxes `alpine`, `curl`, `ubuntu`, `kali`, and with an agent `claude`, `codex`, `opencode`,
-`pi`, `hermes` (images: `make sandbox-images`); tools `trivy`, `trivy-db`, `trivy-scan`.
+published presets come from [burrow-repo](https://github.com/common-sec/burrow-repo) (its index; burrow reads it in roadmap 0.4).
+Test presets: [test/presets](../test/presets/): sandboxes `alpine`, `curl`; tools `trivy`,
+`trivy-db`, `trivy-scan`.
 
 ## Sandbox file (`burrow.sandbox`)
 

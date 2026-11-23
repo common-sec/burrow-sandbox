@@ -53,6 +53,7 @@ updates:
 
   # Base images, pinned by tag + digest: the proxy and forwarder images, and the images of the
   # test presets (test/images/<name>/Dockerfile, one per preset so each can be updated here).
+  # The agent and distribution presets moved to burrow-repo, which has its own Dependabot.
   - package-ecosystem: docker
     directories:
       - /packaging/proxy
@@ -63,13 +64,6 @@ updates:
       - /test/images/alpine
       - /test/images/curl
       - /test/images/trivy
-      - /test/images/ubuntu
-      - /test/images/kali
-      - /test/images/claude
-      - /test/images/codex
-      - /test/images/opencode
-      - /test/images/pi
-      - /test/images/hermes
     schedule:
       interval: daily
     cooldown:
@@ -85,47 +79,7 @@ updates:
     commit-message:
       prefix: "deps(docker)"
 
-  # Agents in the sandbox images (test/images/<agent>/package-lock.json, exact versions with
-  # integrity hashes). One grouped PR for minor and patch; majors one by one.
-  - package-ecosystem: npm
-    directories:
-      - /test/images/claude
-      - /test/images/codex
-      - /test/images/opencode
-      - /test/images/pi
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        applies-to: version-updates
-        update-types: [minor, patch]
-        patterns: ["*"]
-      security:
-        applies-to: security-updates
-        patterns: ["*"]
-    commit-message:
-      prefix: "deps(npm)"
 
-  # Hermes Agent and its dependencies (test/images/hermes/requirements.txt, hashes). Dependabot
-  # updates requirements.txt; regenerate the hashes from requirements.in if a PR leaves them stale.
-  - package-ecosystem: pip
-    directory: /test/images/hermes
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        applies-to: version-updates
-        update-types: [minor, patch]
-        patterns: ["*"]
-      security:
-        applies-to: security-updates
-        patterns: ["*"]
-    commit-message:
-      prefix: "deps(pip)"
 
   # GitHub Actions (pinned by commit SHA).
   - package-ecosystem: github-actions

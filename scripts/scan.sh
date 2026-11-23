@@ -65,13 +65,13 @@ scan_image() {
     --severity HIGH,CRITICAL --scanners vuln --ignore-unfixed --input "/work/$tar"
   rm -rf "$tar" .cache/trivy/tmp
 }
-# The sandbox images of the test presets (scripts/images.sh sandboxes). Secrets fail the scan;
+# The images of the test presets (scripts/images.sh test). Secrets fail the scan;
 # vulnerabilities are reported but do not fail it: full Debian/Ubuntu/Kali bases always carry
 # some, and they are fixed by updating the pinned base (Dependabot), not here (decision 0009).
 sandboxes() {
   echo "== sandbox images (trivy: secrets fail; vulnerabilities reported)"
   mkdir -p .cache/images
-  [ $# -gt 0 ] || set -- alpine curl trivy ubuntu kali claude codex opencode pi hermes
+  [ $# -gt 0 ] || set -- alpine curl trivy
   for n in "$@"; do scan_image "localhost/burrow-test-$n:dev" 0; done
 }
 images() {

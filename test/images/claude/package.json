@@ -1,8 +1,0 @@
-{
-  "name": "burrow-test-claude",
-  "private": true,
-  "description": "Pinned @anthropic-ai/claude-code for the claude sandbox preset; exact version, lockfile with integrity hashes.",
-  "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.325"
-  }
-}
