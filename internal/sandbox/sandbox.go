@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -146,7 +147,11 @@ func (m *Manager) start(ctx context.Context, e *config.Env) error {
 	if err != nil {
 		return err
 	}
-	args := append([]string{"run", "-d", "--name", sandboxName(e.Name)}, m.sandboxFlags(e, proxyIP)...)
+	flags, err := m.sandboxFlags(e, proxyIP)
+	if err != nil {
+		return err
+	}
+	args := append([]string{"run", "-d", "--name", sandboxName(e.Name)}, flags...)
 	args = append(append(args, image(e.Image)...), "sleep", "infinity")
 	_, err = m.Podman.Output(ctx, args...)
 	return err
@@ -216,7 +221,7 @@ func engineFlags(e config.Engine) []string {
 }
 
 // sandboxFlags are shared by `up` and by `shell` on krun (which cannot exec into a running VM).
-func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) []string {
+func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) ([]string, error) {
 	uid, gid, _ := strings.Cut(e.RunAs, ":")
 	f := []string{
 		"--network", netName(e.Name), "--label", labelEnv + "=" + e.Name, "--label", labelKind + "=sandbox",
@@ -228,18 +233,58 @@ func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) []string {
 	f = append(f, proxyEnv(proxyIP)...)
 	f = append(f, envFlags(e.Env)...)
 	if e.WorkspaceMode != config.WorkspaceNone {
-		f = append(f, "-v", e.Workspace+":/work:"+string(e.WorkspaceMode), "-w", "/work")
+		wd := def(e.Workdir, config.DefaultWorkdir)
+		f = append(f, "-v", e.Workspace+":"+wd+":"+string(e.WorkspaceMode), "-w", wd)
 		// The sandbox file must not be writable from inside: the agent would widen its own
 		// sandbox (ALLOW, mounts) at the next `up`. Mount it read-only over itself.
 		if rel, ok := inside(e.Workspace, e.Definition); ok && e.WorkspaceMode == config.WorkspaceRW {
-			f = append(f, "-v", e.Definition+":/work/"+filepath.ToSlash(rel)+":ro")
+			f = append(f, "-v", e.Definition+":"+path.Join(wd, filepath.ToSlash(rel))+":ro")
 		}
 	}
+	mf, err := mountFlags(e.Name, e.Mounts, e.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	f = append(f, mf...)
 	if e.Memory != "" {
 		f = append(f, "--memory", e.Memory)
 	}
-	return f
+	return f, nil
 }
+
+// mountFlags turns MOUNT entries into podman flags (decision 0012). Host paths are resolved and
+// checked here, just before the container starts, and the resolved path is what podman mounts.
+func mountFlags(env string, ms []config.Mount, workspace string) ([]string, error) {
+	srcs, err := config.ResolveMountSources(ms, workspace)
+	if err != nil {
+		return nil, err
+	}
+	var f []string
+	for i, mt := range ms {
+		switch mt.Kind {
+		case config.MountTmpfs:
+			opt := "rw,exec,nosuid,nodev"
+			if mt.Size != "" {
+				opt += ",size=" + mt.Size
+			}
+			f = append(f, "--tmpfs", mt.Target+":"+opt)
+		case config.MountVolume:
+			mode := mt.Mode
+			if mode == "rw" {
+				mode = "rw,U" // the volume belongs to the container's user, as for caches
+			}
+			f = append(f, "-v", MountVolume(env, mt.Source)+":"+mt.Target+":"+mode)
+		case config.MountWork, config.MountHost:
+			f = append(f, "-v", srcs[i]+":"+mt.Target+":"+mt.Mode)
+		default:
+			return nil, fmt.Errorf("MOUNT %s: unknown kind", mt)
+		}
+	}
+	return f, nil
+}
+
+// MountVolume is the podman volume of a MOUNT volume: entry, scoped to the sandbox like caches.
+func MountVolume(env, name string) string { return "burrow-vol-" + def(env, "exec") + "_" + name }
 
 func envFlags(env []string) []string {
 	var f []string
@@ -290,8 +335,12 @@ func (m *Manager) Shell(ctx context.Context, name, user string, cmd []string) er
 		if user != "" {
 			e.RunAs = user
 		}
+		flags, err := m.sandboxFlags(e, ip)
+		if err != nil {
+			return err
+		}
 		args := append([]string{"run", "--rm", "-i"}, m.tty()...)
-		args = append(append(args, m.sandboxFlags(e, ip)...), image(e.Image)...)
+		args = append(append(args, flags...), image(e.Image)...)
 		return m.Podman.Attach(ctx, append(args, cmd...)...)
 	}
 	args := append(append([]string{"exec", "-i"}, m.tty()...), userFlag...)
@@ -312,6 +361,11 @@ type ExecOptions struct {
 	Strict bool
 	// User runs the tool as this uid:gid instead of the preset's RUN_AS (--user); may be root.
 	User string
+	// Workdir, WorkspaceMode and Mounts override the preset's (--workdir, --workspace-mode,
+	// --mount; decision 0012). Mounts are merged by target, these win.
+	Workdir       string
+	WorkspaceMode config.WorkspaceMode
+	Mounts        []config.Mount
 }
 
 // Exec runs a preset as a one-off tool and waits for it. The tool is a sibling of the sandbox, not
@@ -373,8 +427,13 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 		// write them, if rw) without making them world-readable. Inside, it is still its own uid.
 		uid, gid, _ := strings.Cut(runAs, ":")
 		args = append(args, "--userns", "keep-id:uid="+uid+",gid="+gid,
-			"-v", r.workspace+":/work:"+string(r.wsMode), "-w", "/work")
+			"-v", r.workspace+":"+r.workdir+":"+string(r.wsMode), "-w", r.workdir)
 	}
+	mf, err := mountFlags(r.env, r.mounts, r.workspace)
+	if err != nil {
+		return err
+	}
+	args = append(args, mf...)
 	for _, c := range p.Caches {
 		mode := c.Mode
 		if mode == "rw" {
@@ -395,10 +454,11 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 func CacheVolume(env, name string) string { return "burrow-cache-" + def(env, "exec") + "_" + name }
 
 type toolRun struct {
-	env, proxyImage, workspace string
-	wsMode                     config.WorkspaceMode
-	network                    config.NetworkMode
-	allow                      []string
+	env, proxyImage, workspace, workdir string
+	mounts                              []config.Mount
+	wsMode                              config.WorkspaceMode
+	network                             config.NetworkMode
+	allow                               []string
 }
 
 // resolveTool turns a preset's modes into what the tool gets (see Exec).
@@ -406,6 +466,14 @@ func (m *Manager) resolveTool(name, workspace string, p *config.Preset, o ExecOp
 	r := &toolRun{
 		proxyImage: config.DefaultProxyImage, workspace: workspace,
 		wsMode: p.WorkspaceMode, network: p.Network, allow: p.Allow,
+		workdir: def(p.Workdir, config.DefaultWorkdir),
+		mounts:  config.MergeMounts(p.Mounts, o.Mounts),
+	}
+	if o.Workdir != "" {
+		r.workdir = o.Workdir
+	}
+	if o.WorkspaceMode != "" {
+		r.wsMode = o.WorkspaceMode
 	}
 	var e *config.Env
 	if name != "" {
@@ -436,6 +504,19 @@ func (m *Manager) resolveTool(name, workspace string, p *config.Preset, o ExecOp
 			return nil, fmt.Errorf("strict mode: preset %s: %w", p.Name, err)
 		}
 	}
+	if err := config.CheckWorkdir(r.workdir); err != nil {
+		return nil, err
+	}
+	if err := config.CheckMountLayout(r.mounts, r.workdir, r.wsMode); err != nil {
+		return nil, fmt.Errorf("preset %s: %w", p.Name, err)
+	}
+	for _, c := range p.Caches {
+		for _, mt := range r.mounts {
+			if c.Path == mt.Target {
+				return nil, fmt.Errorf("preset %s: MOUNT %s and CACHE use the same target", p.Name, mt)
+			}
+		}
+	}
 	if r.wsMode != config.WorkspaceNone {
 		if err := config.CheckPath("workspace", r.workspace); err != nil {
 			return nil, err
@@ -462,6 +543,18 @@ func checkStrict(e *config.Env, p *config.Preset, r *toolRun) error {
 	if r.wsMode != config.WorkspaceNone && e.WorkspaceMode == config.WorkspaceNone {
 		return fmt.Errorf("needs the workspace, sandbox %s has none", e.Name)
 	}
+	for _, mt := range r.mounts {
+		switch mt.Kind {
+		case config.MountWork:
+			if mt.Mode == "rw" && e.WorkspaceMode != config.WorkspaceRW {
+				return fmt.Errorf("MOUNT %s writes the workspace, sandbox %s cannot", mt, e.Name)
+			}
+		case config.MountHost:
+			if !hasHostMount(e, mt) {
+				return fmt.Errorf("MOUNT %s: host folder that sandbox %s does not have", mt, e.Name)
+			}
+		}
+	}
 	if r.network == config.NetworkProxy {
 		sb := proxy.Policy{Hosts: e.Allow}
 		for _, h := range r.allow {
@@ -471,6 +564,16 @@ func checkStrict(e *config.Env, p *config.Preset, r *toolRun) error {
 		}
 	}
 	return nil
+}
+
+// hasHostMount reports whether the sandbox mounts the same host folder at least as widely.
+func hasHostMount(e *config.Env, mt config.Mount) bool {
+	for _, s := range e.Mounts {
+		if s.Kind == config.MountHost && s.Source == mt.Source && (s.Mode == "rw" || mt.Mode == "ro") {
+			return true
+		}
+	}
+	return false
 }
 
 // coveredBy reports whether every host the pattern h matches is allowed by the sandbox's policy.
@@ -549,8 +652,8 @@ func (m *Manager) Down(ctx context.Context, name string, purge bool) error {
 		}
 		rm := []string{homeVolume(name)}
 		for _, v := range strings.Fields(vols) {
-			if strings.HasPrefix(v, CacheVolume(name, "")) {
-				rm = append(rm, v) // the sandbox's caches
+			if strings.HasPrefix(v, CacheVolume(name, "")) || strings.HasPrefix(v, MountVolume(name, "")) {
+				rm = append(rm, v) // the sandbox's caches and MOUNT volumes
 			}
 		}
 		if _, err := m.Podman.Output(ctx, append([]string{"volume", "rm", "-f"}, rm...)...); err != nil {

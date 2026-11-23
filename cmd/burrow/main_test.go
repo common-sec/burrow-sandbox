@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/common-sec/burrow-sandbox/internal/config"
 )
 
 func TestParseArgsFlagsAnywhereBeforeDash(t *testing.T) {
@@ -86,5 +88,36 @@ func TestRootWarning(t *testing.T) {
 		if c.warn && !strings.Contains(w, c.from) {
 			t.Fatalf("warning does not name its source %q: %q", c.from, w)
 		}
+	}
+}
+
+// U23: the mount flags are checked before anything runs, and every host folder warns.
+func TestMountFlags(t *testing.T) {
+	for _, c := range []struct {
+		workdir, mode string
+		mounts        []string
+		tool, ok      bool
+	}{
+		{"/src", "ro", []string{"tmpfs:/tmp", "host:/srv/x:/x:ro"}, false, true},
+		{"", "inherit", nil, true, true},
+		{"", "inherit", nil, false, false}, // inherit is for exec only
+		{"", "rwx", nil, true, false},
+		{"src", "", nil, false, false},
+		{"", "", []string{"tmpfs:/a,tmpfs:/b"}, false, false}, // one entry per flag
+		{"", "", []string{"host:/srv/x:/x:rw,U"}, false, false},
+	} {
+		o := &mountOpts{workdir: c.workdir, wsMode: c.mode, mounts: c.mounts}
+		_, _, _, err := o.resolve(c.tool)
+		if (err == nil) != c.ok {
+			t.Fatalf("%+v: err %v, want ok=%v", c, err, c.ok)
+		}
+	}
+	ms, err := config.ParseMounts("tmpfs:/tmp,host:/srv/x:/x:rw", "--mount", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := hostMountWarnings(ms)
+	if len(w) != 1 || !strings.Contains(w[0], "/srv/x") || !strings.Contains(w[0], "--mount") || !strings.Contains(w[0], "change") {
+		t.Fatalf("warnings: %q", w)
 	}
 }

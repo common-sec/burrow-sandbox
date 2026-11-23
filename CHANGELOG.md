@@ -14,6 +14,9 @@
 - Sandbox presets with agents (claude, codex, opencode, pi, hermes) and distributions (ubuntu,
   kali), from pinned bases and lockfiles with hashes; built and scanned weekly (decision 0009).
 - burrow checks Podman (4.9+, netavark) before creating anything.
+- `WORKDIR` (where the workspace is mounted, and `-w`) and `MOUNT` (`tmpfs:`, `volume:`, `work:` subfolders;
+  `host:` folders from the sandbox file or `--mount` only, with a warning) in presets and sandbox files;
+  `--workdir`, `--workspace-mode`, `--mount` on `run`, `up` and `exec` (decision 0012).
 - `docs/WINDOWS.md`: steps for a dedicated WSL distro that shares only the work folder, with
   interop off and no sudo, marked as a temporary protection (E1).
 - `--user UID:GID` on `run`, `up`, `exec` and `shell` overrides the preset's `RUN_AS`. Root (`0:0`, no
