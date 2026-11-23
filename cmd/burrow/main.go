@@ -33,11 +33,11 @@ burrow runs tool and environment presets focused on security, not images: a pres
 image plus the least privilege it needs. Presets live in your presets folder (` + "`burrow presets`" + `).
 
 Usage:
-  burrow up [-f FILE] [--image IMAGE] [--user UID:GID]
+  burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [MOUNT FLAGS]
         start the persistent sandbox defined by a sandbox file (default ./` + SandboxFile + `)
-  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]
+  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [MOUNT FLAGS]
         start an ad-hoc persistent sandbox from a preset (workspace: current folder)
-  burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]
+  burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] [MOUNT FLAGS] PRESET [-- ARGS...]
         run a preset as a one-off tool next to the sandbox, with what the preset asks for.
         Where the preset says inherit, it takes the sandbox's workspace mode and allowlist;
         without a sandbox (-s, or a sandbox file here) it takes the preset's fallback.
@@ -53,8 +53,15 @@ Usage:
         the presets in your presets folder
   burrow version
 
---user UID:GID runs as that user instead of the preset's RUN_AS. 0:0 (root) is allowed here only,
-never from a preset or sandbox file; root still has no capabilities.
+--user UID:GID runs as that user instead of the preset's RUN_AS. Root (0:0) is allowed from the
+flag, a preset or a sandbox file; burrow warns every time, and root still has no capabilities.
+MOUNT FLAGS (decision 0012) override the preset and the sandbox file:
+  --workdir PATH          where the workspace is mounted inside, and the working dir (default /work)
+  --workspace-mode MODE   none, ro or rw (exec: also inherit)
+  --mount ENTRY           repeatable: tmpfs:TARGET[:SIZE], volume:NAME:TARGET:MODE,
+                          work:SUBDIR:TARGET:MODE (a folder inside the workspace),
+                          host:PATH:TARGET:MODE (a host folder: only here or in the sandbox file;
+                          burrow warns every time)
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
 
 Global flags (before the command):
@@ -88,13 +95,99 @@ func hint(err error) string {
 	return ""
 }
 
-// warnRoot says it plainly when --user asks for root (decision 0011).
-func warnRoot(user string) {
-	if user != "" && config.CheckUser(user) == nil && config.IsRoot(user) {
-		fmt.Fprintln(os.Stderr, "burrow: warning: --user "+user+" runs as root inside: no capabilities "+
-			"and no new privileges, but root can change everything in the container, and the "+
-			"workspace files it writes are yours on the host")
+// warnRoot says it plainly whenever a sandbox, tool or shell runs as root, and where root was
+// asked for: --user, a preset or a sandbox file (decision 0011).
+func warnRoot(user, from string) {
+	if w := rootWarning(user, from); w != "" {
+		fmt.Fprintln(os.Stderr, w)
 	}
+}
+
+func rootWarning(user, from string) string {
+	if user == "" || config.CheckUser(user) != nil || !config.IsRoot(user) {
+		return ""
+	}
+	if from == "" {
+		from = "RUN_AS"
+	}
+	return "burrow: warning: " + from + " " + user + " runs as root inside: no capabilities and no " +
+		"new privileges, but root can change everything in the container, and the workspace files it " +
+		"writes are yours on the host"
+}
+
+// listFlag collects a repeatable flag.
+type listFlag []string
+
+func (l *listFlag) String() string     { return strings.Join(*l, ",") }
+func (l *listFlag) Set(v string) error { *l = append(*l, v); return nil }
+
+// mountOpts are --workdir, --workspace-mode and --mount (decision 0012).
+type mountOpts struct {
+	workdir, wsMode string
+	mounts          listFlag
+}
+
+func addMountFlags(fs *flag.FlagSet) *mountOpts {
+	o := &mountOpts{}
+	fs.StringVar(&o.workdir, "workdir", "", "")
+	fs.StringVar(&o.wsMode, "workspace-mode", "", "")
+	fs.Var(&o.mounts, "mount", "")
+	return o
+}
+
+// resolve checks the flags; tool allows inherit as a workspace mode.
+func (o *mountOpts) resolve(tool bool) (string, config.WorkspaceMode, []config.Mount, error) {
+	if o.workdir != "" {
+		if err := config.CheckWorkdir(o.workdir); err != nil {
+			return "", "", nil, fmt.Errorf("--workdir: %w", err)
+		}
+	}
+	mode := config.WorkspaceMode(o.wsMode)
+	switch mode {
+	case "", config.WorkspaceNone, config.WorkspaceRO, config.WorkspaceRW:
+	case config.WorkspaceInherit:
+		if !tool {
+			return "", "", nil, errors.New("--workspace-mode inherit is for exec only")
+		}
+	default:
+		return "", "", nil, fmt.Errorf("--workspace-mode %q: none, ro or rw", o.wsMode)
+	}
+	ms, err := config.ParseMounts(strings.Join(o.mounts, ","), "--mount", true)
+	if err != nil {
+		return "", "", nil, err
+	}
+	for _, m := range o.mounts {
+		if strings.Contains(m, ",") {
+			return "", "", nil, fmt.Errorf("--mount %q: one entry per flag", m)
+		}
+	}
+	return o.workdir, mode, ms, nil
+}
+
+func mountList(ms []config.Mount) string {
+	s := make([]string, len(ms))
+	for i, m := range ms {
+		s[i] = m.String()
+	}
+	return strings.Join(s, ", ")
+}
+
+// warnHostMounts says it plainly for every host folder mounted (decision 0012).
+func warnHostMounts(ms []config.Mount) {
+	for _, w := range hostMountWarnings(ms) {
+		fmt.Fprintln(os.Stderr, w)
+	}
+}
+
+func hostMountWarnings(ms []config.Mount) []string {
+	var out []string
+	for _, m := range ms {
+		if m.Kind == config.MountHost {
+			out = append(out, "burrow: warning: host folder "+m.Source+" mounted at "+m.Target+" ("+m.Mode+
+				") from "+m.From+": everything in the container can "+map[string]string{"ro": "read", "rw": "read and change"}[m.Mode]+" it")
+		}
+	}
+	return out
 }
 
 func run(argv []string) error {
@@ -149,11 +242,15 @@ func run(argv []string) error {
 		file := sub.String("f", SandboxFile, "")
 		image := sub.String("image", "", "")
 		user := sub.String("user", "", "")
+		mo := addMountFlags(sub)
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 0 {
-			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID]")
+			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [--workdir PATH] [--workspace-mode MODE] [--mount ENTRY]")
 		}
-		warnRoot(*user)
+		wd, wsm, ms, err := mo.resolve(false)
+		if err != nil {
+			return err
+		}
 		keys, err := config.LoadSandboxFile(*file)
 		if err != nil {
 			return err
@@ -164,22 +261,31 @@ func run(argv []string) error {
 				return err
 			}
 		}
-		e, err := config.NewSandbox(p, keys, filepath.Dir(*file), config.Overrides{Image: *image, RunAs: *user})
+		e, err := config.NewSandbox(p, keys, filepath.Dir(*file), config.Overrides{
+			Image: *image, RunAs: *user,
+			Workdir: wd, WorkspaceMode: wsm, Mounts: ms,
+		})
 		if err != nil {
 			return fmt.Errorf("%s: %w", *file, err)
 		}
 		e.Definition = *file
+		warnRoot(e.RunAs, strings.Replace(e.RunAsFrom, "the sandbox file", *file, 1))
+		warnHostMounts(e.Mounts)
 		return up(ctx, m, e)
 	case "run":
 		name := sub.String("name", "", "")
 		image := sub.String("image", "", "")
 		ws := sub.String("workspace", "", "")
 		user := sub.String("user", "", "")
+		mo := addMountFlags(sub)
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]")
+			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [--workdir PATH] [--workspace-mode MODE] [--mount ENTRY]")
 		}
-		warnRoot(*user)
+		wd, wsm, ms, err := mo.resolve(false)
+		if err != nil {
+			return err
+		}
 		p, err := find(pos[0])
 		if err != nil {
 			return err
@@ -188,27 +294,41 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		e, err := config.NewSandbox(p, nil, dir, config.Overrides{Name: *name, Image: *image, Workspace: dir, RunAs: *user})
+		e, err := config.NewSandbox(p, nil, dir, config.Overrides{
+			Name: *name, Image: *image, Workspace: dir, RunAs: *user,
+			Workdir: wd, WorkspaceMode: wsm, Mounts: ms,
+		})
 		if err != nil {
 			return err
 		}
+		warnRoot(e.RunAs, e.RunAsFrom)
+		warnHostMounts(e.Mounts)
 		return up(ctx, m, e)
 	case "exec":
 		name := sub.String("s", "", "")
 		strict := sub.Bool("strict", false, "")
 		ws := sub.String("workspace", "", "")
 		user := sub.String("user", "", "")
+		mo := addMountFlags(sub)
 		pos, after, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]")
+			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] [--workdir PATH] [--workspace-mode MODE] [--mount ENTRY]... PRESET [-- ARGS...]")
 		}
-		warnRoot(*user)
+		wd, wsm, ms, err := mo.resolve(true)
+		if err != nil {
+			return err
+		}
 		if *name != "" && *ws != "" {
 			return errors.New("exec: --workspace is for a tool without a sandbox; a sandbox brings its own")
 		}
 		p, err := find(pos[0])
 		if err != nil {
 			return err
+		}
+		if *user != "" {
+			warnRoot(*user, "--user")
+		} else {
+			warnRoot(p.RunAs, "RUN_AS in preset "+p.Name+" ("+p.Source+")")
 		}
 		if *name == "" && *ws == "" {
 			if *name, err = nameFromFile(); err != nil {
@@ -219,14 +339,18 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		return m.Exec(ctx, *name, dir, p, after, sandbox.ExecOptions{Strict: *strict, User: *user})
+		warnHostMounts(ms)
+		return m.Exec(ctx, *name, dir, p, after, sandbox.ExecOptions{
+			Strict: *strict, User: *user,
+			Workdir: wd, WorkspaceMode: wsm, Mounts: ms,
+		})
 	case "shell":
 		user := sub.String("user", "", "")
 		pos, after, err := parseArgs(sub, rest)
 		if err != nil || len(pos) > 1 {
 			return errors.New("usage: burrow shell [NAME] [--user UID:GID] [-- CMD ARGS...]")
 		}
-		warnRoot(*user)
+		warnRoot(*user, "--user")
 		name, err := nameArg(pos)
 		if err != nil {
 			return err
@@ -327,6 +451,8 @@ func printPreset(w io.Writer, p *config.Preset) {
 		{"source", p.Source},
 		{"image", p.Image},
 		{"workspace", ws},
+		{"workdir", p.Workdir},
+		{"mounts", mountList(p.Mounts)},
 		{"network", nw},
 		{"allow", strings.Join(p.Allow, ", ")},
 		{"run as", p.RunAs},

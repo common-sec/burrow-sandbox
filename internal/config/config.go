@@ -69,12 +69,14 @@ var ToolCaps = keys("CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "NET_BI
 type Env struct {
 	Name          string
 	Image         string
-	Workspace     string        // host folder; mounted at /work
+	Workspace     string        // host folder; mounted at Workdir
+	Workdir       string        // where the workspace is mounted inside, and the working directory
+	Mounts        []Mount       // MOUNT entries, merged: preset, sandbox file, flags (decision 0012)
 	WorkspaceMode WorkspaceMode // rw by default for a sandbox
 	Allow         []string      // hosts the sandbox's proxy lets through
 	Engine        Engine
 	RunAs         string // uid:gid inside the sandbox; the host user is mapped to it (keep-id)
-	UserFlag      bool   // RunAs came from --user (may be root), not from a preset or file
+	RunAsFrom     string // where RunAs came from, for the root warning (not stored)
 	ProxyImage    string
 	ForwardImage  string
 	Memory        string   // podman --memory, optional
@@ -103,6 +105,8 @@ type Preset struct {
 	CapAdd            []string
 	Env               []string // KEY=VALUE, not secret
 	Memory            string
+	Workdir           string            // where the workspace is mounted inside; /work by default
+	Mounts            []Mount           // MOUNT entries; never host: (decision 0012)
 	Source            string            // file path
 	raw               map[string]string // the keys the preset sets, for NewSandbox
 }
@@ -179,14 +183,14 @@ func unquote(v string) (string, error) {
 
 // envKeys are the keys of a stored sandbox (state, written by burrow).
 var envKeys = keys("NAME", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "ALLOW", "ENGINE", "RUN_AS",
-	"PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "DEFINITION", "USER_FLAG")
+	"PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "DEFINITION", "USER_FLAG", "WORKDIR", "MOUNT")
 
 // sandboxKeys are the keys of a sandbox file (`burrow up`).
 var sandboxKeys = keys("NAME", "PRESET", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "NETWORK", "ALLOW",
-	"ENGINE", "RUN_AS", "PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT")
+	"ENGINE", "RUN_AS", "PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "WORKDIR", "MOUNT")
 
 var presetKeys = keys("NAME", "DESCRIPTION", "IMAGE", "ARGS", "WORKSPACE_MODE", "NETWORK", "ALLOW",
-	"ENGINE", "RUN_AS", "CACHE", "CAP_ADD", "ENV", "MEMORY")
+	"ENGINE", "RUN_AS", "CACHE", "CAP_ADD", "ENV", "MEMORY", "WORKDIR", "MOUNT")
 
 // toolOnly are preset keys that make sense only for exec.
 var toolOnly = []string{"ARGS", "CACHE", "CAP_ADD"}
@@ -224,13 +228,18 @@ func LoadEnv(path string) (*Env, error) {
 		Memory:        m["MEMORY"],
 		Env:           commaList(m["ENV"]),
 		Definition:    m["DEFINITION"],
+		Workdir:       def(m["WORKDIR"], DefaultWorkdir),
 	}
 	var err2 error
+	if e.Mounts, err2 = ParseMounts(m["MOUNT"], "stored sandbox", true); err2 != nil {
+		return nil, err2
+	}
 	e.Strict, err2 = parseBool("STRICT", m["STRICT"])
 	if err2 != nil {
 		return nil, err2
 	}
-	if e.UserFlag, err2 = parseBool("USER_FLAG", m["USER_FLAG"]); err2 != nil {
+	// USER_FLAG was written by earlier 0.1 builds, when root needed --user; it is ignored now.
+	if _, err2 = parseBool("USER_FLAG", m["USER_FLAG"]); err2 != nil {
 		return nil, err2
 	}
 	return e, e.Validate()
@@ -243,10 +252,13 @@ func LoadSandboxFile(path string) (map[string]string, error) {
 
 // Overrides are command-line settings; they win over the sandbox file and the preset.
 type Overrides struct {
-	Name      string
-	Image     string
-	Workspace string // absolute
-	RunAs     string // --user: uid:gid; unlike RUN_AS it may be root (exception in decision 0011)
+	Name          string
+	Image         string
+	Workspace     string        // absolute
+	RunAs         string        // --user: uid:gid, root included (with a warning, decision 0011)
+	Workdir       string        // --workdir
+	WorkspaceMode WorkspaceMode // --workspace-mode
+	Mounts        []Mount       // --mount, checked with ParseMounts(..., true)
 }
 
 // NewSandbox resolves a sandbox from a preset (may be nil), a sandbox file's keys (may be nil;
@@ -260,17 +272,20 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 			}
 		}
 		for k, v := range p.raw {
-			if k != "DESCRIPTION" {
+			if k != "DESCRIPTION" && k != "MOUNT" {
 				m[k] = v
 			}
 		}
 	}
 	for k, v := range file {
-		if k != "PRESET" {
+		if k != "PRESET" && k != "MOUNT" {
 			m[k] = v
 		}
 	}
-	for k, v := range map[string]string{"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace} {
+	for k, v := range map[string]string{
+		"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace,
+		"WORKDIR": o.Workdir, "WORKSPACE_MODE": string(o.WorkspaceMode),
+	} {
 		if v != "" {
 			m[k] = v
 		}
@@ -296,8 +311,23 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 	if e.Strict, err = parseBool("STRICT", m["STRICT"]); err != nil {
 		return nil, err
 	}
-	if o.RunAs != "" {
-		e.RunAs, e.UserFlag = o.RunAs, true
+	e.Workdir = def(m["WORKDIR"], DefaultWorkdir)
+	var fileMounts []Mount
+	if fileMounts, err = ParseMounts(file["MOUNT"], "sandbox file", true); err != nil {
+		return nil, err
+	}
+	var presetMounts []Mount
+	if p != nil {
+		presetMounts = p.Mounts
+	}
+	e.Mounts = MergeMounts(presetMounts, fileMounts, o.Mounts)
+	switch {
+	case o.RunAs != "":
+		e.RunAs, e.RunAsFrom = o.RunAs, "--user"
+	case file["RUN_AS"] != "":
+		e.RunAsFrom = "RUN_AS in the sandbox file"
+	case p != nil && p.raw["RUN_AS"] != "":
+		e.RunAsFrom = "RUN_AS in preset " + p.Name + " (" + p.Source + ")"
 	}
 	if e.WorkspaceMode != WorkspaceNone {
 		ws := def(m["WORKSPACE"], ".")
@@ -319,8 +349,9 @@ func (e *Env) Validate() error {
 		errs = append(errs, errors.New(`NAME "exec" is reserved (tools run without a sandbox)`))
 	}
 	errs = append(errs, checkImage("IMAGE", e.Image), checkImage("PROXY_IMAGE", e.ProxyImage),
-		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), checkEnvUser(e),
-		checkHosts(e.Allow), checkMemory(e.Memory), checkEnv(e.Env))
+		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), CheckRunAs(e.RunAs),
+		checkHosts(e.Allow), checkMemory(e.Memory), checkEnv(e.Env), CheckWorkdir(def(e.Workdir, DefaultWorkdir)),
+		checkTargets(e.Mounts), CheckMountLayout(e.Mounts, def(e.Workdir, DefaultWorkdir), e.WorkspaceMode))
 	switch e.WorkspaceMode {
 	case WorkspaceRW, WorkspaceRO:
 		if e.Workspace == "" {
@@ -374,8 +405,11 @@ func ParsePreset(r io.Reader, src string) (*Preset, error) {
 		CapAdd:      list(m["CAP_ADD"]),
 		Env:         commaList(m["ENV"]),
 		Memory:      m["MEMORY"],
+		Workdir:     def(m["WORKDIR"], DefaultWorkdir),
 	}
 	var errs []error
+	p.Mounts, err = ParseMounts(m["MOUNT"], "preset "+m["NAME"], false)
+	errs = append(errs, err, CheckWorkdir(p.Workdir))
 	ws, wsFb, _ := strings.Cut(def(m["WORKSPACE_MODE"], string(WorkspaceRO)), ":")
 	p.WorkspaceMode, p.WorkspaceFallback = WorkspaceMode(ws), WorkspaceMode(def(wsFb, string(WorkspaceRO)))
 	nw, nwFb, _ := strings.Cut(def(m["NETWORK"], string(NetworkNone)), ":")
@@ -590,17 +624,7 @@ func checkEngine(e Engine) error {
 	return nil
 }
 
-// checkEnvUser: RUN_AS from a preset or sandbox file is never root; one given with --user may be.
-func checkEnvUser(e *Env) error {
-	if e.UserFlag {
-		return CheckUser(e.RunAs)
-	}
-	return CheckRunAs(e.RunAs)
-}
-
-// CheckUser checks the --user flag: uid:gid, root (uid 0) included. Root is only ever asked for
-// on the command line by the person running burrow, never by a preset or a sandbox file (which
-// the agent could write), and keeps no capabilities and no-new-privileges (decision 0011).
+// CheckUser checks the --user flag: uid:gid, root (uid 0) included.
 func CheckUser(s string) error {
 	if !runAsRe.MatchString(s) {
 		return fmt.Errorf("--user %q: uid:gid", s)
@@ -614,14 +638,12 @@ func IsRoot(s string) bool {
 	return uid == 0
 }
 
-// CheckRunAs accepts uid:gid with a uid other than 0: a preset or sandbox file never runs
-// anything as root.
+// CheckRunAs checks RUN_AS: uid:gid, root (uid 0) included. Root is allowed from every source
+// (flag, preset, sandbox file) because some programs need it; burrow warns whenever it runs as root,
+// and root keeps no capabilities and no-new-privileges (decision 0011).
 func CheckRunAs(s string) error {
 	if !runAsRe.MatchString(s) {
 		return fmt.Errorf("RUN_AS %q: uid:gid", s)
-	}
-	if uid, _ := strconv.Atoi(strings.SplitN(s, ":", 2)[0]); uid == 0 {
-		return errors.New("RUN_AS: root (uid 0) is not allowed")
 	}
 	return nil
 }
@@ -666,9 +688,10 @@ func (e *Env) String() string {
 	if e.Strict {
 		w("STRICT", "true")
 	}
-	if e.UserFlag {
-		w("USER_FLAG", "true")
-	}
 	w("DEFINITION", e.Definition)
+	if e.Workdir != "" && e.Workdir != DefaultWorkdir {
+		w("WORKDIR", e.Workdir)
+	}
+	w("MOUNT", mountsString(e.Mounts))
 	return b.String()
 }

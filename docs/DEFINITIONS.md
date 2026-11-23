@@ -22,8 +22,10 @@ A pinned image and the least-privilege settings its tool needs ([decision
 | `ALLOW` | none | hosts the proxy lets through (port 443): `pypi.org`, or `*.github.com` for subdomains. Needs `NETWORK=proxy` or `inherit:proxy`. |
 | `ENV` | none | plain settings, `KEY=VALUE,KEY=VALUE`. Not for secrets (those come through the proxy, roadmap 0.3); `*_PROXY` keys are refused (burrow sets them). |
 | `ENGINE` | `crun` | `crun`, or `krun` (experimental microVM; Linux with KVM) |
-| `RUN_AS` | `65532:65532` (tool), `1000:1000` (sandbox) | uid:gid inside; the host user is mapped to it when the workspace is mounted; uid 0 refused |
+| `RUN_AS` | `65532:65532` (tool), `1000:1000` (sandbox) | uid:gid inside; the host user is mapped to it when the workspace is mounted; uid 0 (root) is allowed with a warning, still without capabilities (decision 0011) |
 | `MEMORY` | none | e.g. `4g` |
+| `WORKDIR` | `/work` | where the workspace is mounted inside, and the working directory (`podman -w`); an absolute container path, not `/proc`, `/sys`, `/dev`, `/run`, `/etc` or below |
+| `MOUNT` | none | extra mounts, comma-separated: `tmpfs:TARGET[:SIZE]`, `volume:NAME:TARGET:MODE`, `work:SUBDIR:TARGET:MODE`. A preset can never mount a host folder (`host:` is refused). See "Mounts" below. |
 | `ARGS` | none | *tool only*: arguments to the image's entrypoint; `-- ARGS` on the command line are appended |
 | `CACHE` | none | *tool only*: one or more `name:/path:mode`, comma-separated, mode `rw`, `ro` or `O` (overlay: writes discarded). See "Caches" below. |
 | `CAP_ADD` | none | *tool only*: capabilities to add back after `--cap-drop ALL`, comma-separated, only from Podman's default set plus `NET_RAW` (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `NET_BIND_SERVICE`, `NET_RAW`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`). `no-new-privileges` stays on. Refused under strict mode. |
@@ -49,11 +51,30 @@ does not reach any other. Within one sandbox, a preset that must not be affected
 wrote can mount the cache `ro` or `O`, or use a name of its own. Per-preset scoping inside a
 sandbox is not done yet (*gap*). `burrow down NAME --purge` removes the sandbox's caches.
 
-### Volumes and secrets
+### Mounts
 
-Not yet: today a container gets only the workspace (at `/work`), its caches, and, for a sandbox,
-its home volume. Extra volumes and mounts, and secrets (through the vault/proxy system, never as
-variables), are on the [roadmap](ROADMAP.md).
+Beyond the workspace and caches, a preset or sandbox file can ask for extra mounts with `MOUNT`
+([decision 0012](decisions/0012-workdir-and-mounts.md)). burrow builds each podman flag itself; no
+mount option is passed through as written.
+
+| Entry | Example | What the container gets |
+|---|---|---|
+| `tmpfs:TARGET[:SIZE]` | `tmpfs:/tmp:2g` | a memory-backed folder (`rw,exec,nosuid,nodev`), gone when the container stops |
+| `volume:NAME:TARGET:MODE` | `volume:dist:/dist:rw` | a named volume `burrow-vol-<sandbox>_NAME` (`exec` without a sandbox), scoped like caches; `down --purge` removes it. `MODE`: `rw`, `ro`, `O` |
+| `work:SUBDIR:TARGET:MODE` | `work:dist:/out:rw` | a folder inside the workspace (relative, no `..`, no symlink out of it; it must exist). A tool can read a read-only workspace and write only this folder. `MODE`: `rw`, `ro` |
+| `host:PATH:TARGET:MODE` | `host:/srv/data:/data:ro` | **sandbox file and `--mount` only**: a host folder outside the workspace. It must exist and cannot be `/` (or a whole drive), your home folder itself, or `/run`, `/var/run`, `$XDG_RUNTIME_DIR` or a folder that holds them (the Podman socket). burrow warns every time. `MODE`: `rw`, `ro` |
+
+`TARGET` is an absolute container path without commas, colons or spaces, not `/`, `/proc`, `/sys`,
+`/dev`, `/run`, `/etc` (or below) or `/home/sandbox`, and not the workspace itself. Entries merge by
+target: preset, then sandbox file, then `--mount` (the later wins).
+
+**On the command line** (`run`, `up`, `exec`): `--workdir PATH`, `--workspace-mode MODE` (`none`,
+`ro`, `rw`; `exec` also `inherit`) and `--mount ENTRY` (repeatable) override the preset and the
+sandbox file. Strict mode still caps a tool: a `work:` mount no wider than the sandbox's
+workspace, and no `host:` folder the sandbox does not mount as widely.
+
+**Secrets** (through the vault/proxy system, never as variables) are on the
+[roadmap](ROADMAP.md).
 
 **Where presets come from**, first match wins: a path (contains `/` or ends in `.preset`); the
 user's presets folder (`burrow presets` prints it; `BURROW_PRESETS_DIR` overrides it). Never the
@@ -73,10 +94,11 @@ Like a compose file: names a preset and sets local values. `burrow up` reads `./
 | `NAME` | required | the sandbox's name (`exec` is reserved) |
 | `PRESET` | none | a preset to start from; every key below that is set here wins over the preset's |
 | `IMAGE` | the preset's | as above; `--image` on the command line wins over both |
-| `WORKSPACE` | `.` | host folder mounted at `/work`, relative to the sandbox file (Windows: `C:\path`) |
+| `WORKSPACE` | `.` | host folder mounted at `WORKDIR` (`/work`), relative to the sandbox file (Windows: `C:\path`) |
 | `WORKSPACE_MODE` | `rw` | `none`, `ro`, `rw` |
 | `NETWORK` | `proxy` | only `proxy` for a sandbox |
-| `ALLOW`, `ENGINE`, `RUN_AS`, `MEMORY`, `ENV` | | as for a preset |
+| `ALLOW`, `ENGINE`, `RUN_AS`, `MEMORY`, `ENV`, `WORKDIR` | | as for a preset |
+| `MOUNT` | none | as for a preset, merged with the preset's by target (this file wins), plus `host:PATH:TARGET:MODE`: a host folder outside the workspace, with a warning at every start |
 | `STRICT` | `false` | `true`: every tool run next to this sandbox is capped by it (as `exec --strict`) |
 | `PROXY_IMAGE` | `localhost/burrow-proxy:dev` | the proxy image |
 | `FORWARD_IMAGE` | `localhost/burrow-forward:dev` | the port forwarder image |

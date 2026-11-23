@@ -14,7 +14,14 @@
 - Sandbox presets with agents (claude, codex, opencode, pi, hermes) and distributions (ubuntu,
   kali), from pinned bases and lockfiles with hashes; built and scanned weekly (decision 0009).
 - burrow checks Podman (4.9+, netavark) before creating anything.
-- `--user UID:GID` on `run`, `up`, `exec` and `shell` overrides the preset's `RUN_AS`; `0:0` (root, no capabilities) only from the flag, with a warning (decision 0011).
+- `WORKDIR` (where the workspace is mounted, and `-w`) and `MOUNT` (`tmpfs:`, `volume:`, `work:` subfolders;
+  `host:` folders from the sandbox file or `--mount` only, with a warning) in presets and sandbox files;
+  `--workdir`, `--workspace-mode`, `--mount` on `run`, `up` and `exec` (decision 0012).
+- `docs/WINDOWS.md`: steps for a dedicated WSL distro that shares only the work folder, with
+  interop off and no sudo, marked as a temporary protection (E1).
+- `--user UID:GID` on `run`, `up`, `exec` and `shell` overrides the preset's `RUN_AS`. Root (`0:0`, no
+  capabilities) is allowed from the flag, a preset or a sandbox file, with a warning that names where it
+  came from (decision 0011).
 - Nothing is installed on the host: vet, golangci-lint, tests, govulncheck, fmt and the build run
   in pinned images (`packaging/dev/Dockerfile`); mise, `mise.lock` and its installer are gone
   (decision 0010). The scanner pins moved from `compose.yaml` to
