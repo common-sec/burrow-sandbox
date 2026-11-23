@@ -17,4 +17,5 @@ this folder holds burrow's own.
 | [0009](0009-agent-sandboxes.md) | Sandbox presets for agents (claude, codex, opencode, pi, hermes) and distributions (ubuntu, kali), from pinned images and lockfiles with hashes | proposed |
 | [0008](0008-rust-forwarder.md) | The port forwarder in Rust, standard library only (exception to org DR-0006, owner J) | proposed |
 | [0011](0011-secure-defaults-user-overrides.md) | Secure by default, tunable by the user with warnings; root on request from `--user`, a preset or a sandbox file, always with a warning (exception, owner J) | proposed |
+| [0012](0012-workdir-and-mounts.md) | `WORKDIR` (workspace path, `-w`), one `MOUNT` key with typed entries (`tmpfs`, `volume`, `work`, `host`), flags `--workdir`, `--workspace-mode`, `--mount` | proposed; who may mount host folders open |
 | [0010](0010-dev-tools-in-containers.md) | Developer checks in pinned containers (`packaging/dev/Dockerfile`); mise removed; supersedes the mise parts of 0006 | proposed |
