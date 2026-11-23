@@ -20,7 +20,7 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ✓ | Strict mode (`--strict`, `STRICT=true`): tools capped by their sandbox | SB7 |
 | ◐ | Rework of inheritance: which settings a tool can inherit beyond workspace and proxy (caches, extra mounts, memory, environment), each with a default for when there is no sandbox | W2 |
 | ○ | Extra volumes and mounts in presets and sandbox files (beyond the workspace and caches) | W2 |
-| ○ | Secrets and environment injection: plain `ENV` today; secrets only through the vault/proxy system (placeholders in the sandbox, real values added by the proxy), never as variables | R7, D4 |
+| ◐ | Secrets and environment injection: plain `ENV` today; secrets only through the vault/proxy system (placeholders in the sandbox, real values added by the proxy), never as variables. Designed ([0012](decisions/0012-secrets-through-the-proxy.md), [SECRETS.md](SECRETS.md)); built with the 0.3 proxy | R7, D4 |
 | ✓ | `burrow port`: publish a port of a running sandbox through a forwarder container (Rust, standard library only, [0008](decisions/0008-rust-forwarder.md)) | R9 |
 | ✓ | A dedicated egress network per proxy: proxies and forwarders of different sandboxes cannot reach each other | SB3 |
 | ✓ | Engine per sandbox or preset: crun default, krun experimental (`shell` falls back to a one-shot VM) | R11, W3 |
@@ -52,7 +52,9 @@ Legend: ✓ done · ◐ partly · ○ not started
 | | Item | Serves |
 |---|---|---|
 | ○ | Choose and integrate a proper proxy: TLS inspection, allowlist by host, method and path, credentials injected at the proxy (placeholders in the sandbox), OAuth tokens, audit log | R7 |
-| ○ | Secrets and environment injection through the vault/proxy system: which secrets a sandbox or preset may use, how they reach the proxy, how they are rotated | R7, D4 |
+| ○ | Secrets through the proxy, v1 ([0012](decisions/0012-secrets-through-the-proxy.md)): `SECRETS=NAME:VAR`, `*.secret` files with `env:`/`cmd:` references, bindings loaded into the proxy's memory, `burrow secrets refresh`/`revoke` | R7, D4 |
+| ○ | Secrets v2: `burrow-secret-SCHEME` plugins (Vault/OpenBao, cloud secret managers) with expiry and automatic refresh; proxy processors (query, HMAC, SigV4, OAuth refresh) | R7, D4 |
+| ○ | Secrets v3: the proxy fetches from the store with its own identity (CI, shared proxy) | R7, D4, G5 |
 | ○ | Later, possibly: one shared proxy with container authentication and a central policy system, instead of one proxy per sandbox | R7, G5 |
 | ○ | Per-sandbox CA handed to the sandbox and presets only (certificate, never the key) | R7 |
 | ○ | Cost budget per instance (measured: 35 MB, +3 ms per new connection); option to share one policy process | R7, G5 |

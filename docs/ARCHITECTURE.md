@@ -85,6 +85,14 @@ definition file and a compromised dependency of burrow.
 | Images burrow starts | a process on the host (for example a sandbox port forwarded to `127.0.0.1:443`) answers as the registry `localhost` and serves its own image for a missing `localhost/` image | `localhost/` images are run with `--pull=never`: a missing one is an error with the build command; other images are pinned by digest and pulled only when missing | a local image already in the store is trusted as built |
 | The sandbox's user | a preset or sandbox file asks for root, so the agent (or a shared preset) gets root inside | `RUN_AS` is never root; only the `--user` flag, typed by the person running burrow, may be `0:0` (decision 0011), with a warning; root keeps no capabilities and no-new-privileges; a stored sandbox that says root without `USER_FLAG` is refused | root inside can change every file in the container and in an rw workspace |
 
+## Secrets (designed, not built)
+
+The sandbox only ever sees random placeholders; burrow fetches the values on the host from the
+user's own store and loads them into the memory of that sandbox's proxy, which substitutes them
+into requests to the secret's hosts only and blocks a placeholder sent anywhere else. burrow
+stores no secrets. Diagrams, flows and the threat model rows to add when it is built:
+[SECRETS.md](SECRETS.md), [decision 0012](decisions/0012-secrets-through-the-proxy.md).
+
 ## Podman-native, not a new engine
 
 burrow only adds what Podman lacks (policy, presets, the per-sandbox proxy, ports on running
