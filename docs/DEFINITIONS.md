@@ -53,7 +53,8 @@ sandbox is not done yet (*gap*). `burrow down NAME --purge` removes the sandbox'
 
 Not yet: today a container gets only the workspace (at `/work`), its caches, and, for a sandbox,
 its home volume. Extra volumes and mounts, and secrets (through the vault/proxy system, never as
-variables), are on the [roadmap](ROADMAP.md).
+variables), are on the [roadmap](ROADMAP.md). The secrets design (placeholders, `SECRETS=NAME:VAR`, `*.secret`
+files) is in [SECRETS.md](SECRETS.md) ([decision 0012](decisions/0012-secrets-through-the-proxy.md)).
 
 **Where presets come from**, first match wins: a path (contains `/` or ends in `.preset`); the
 user's presets folder (`burrow presets` prints it; `BURROW_PRESETS_DIR` overrides it). Never the
