@@ -26,7 +26,8 @@ structure the secrets design needs.
 |---|---|---|
 | Licence | Apache-2.0 | `LICENSE` in the repository at tag `v0.56.0` |
 | Version | 0.56.0, tagged 2026-11-04: the newest past the 7-day cooldown (0.57.0 to 0.59.0 are from 2026-11-17 to 2026-11-19). It includes a fix that requires a patched Go toolchain (upstream #288) | `git log` of the tags |
-| Image | `docker.io/ironsh/iron-proxy:0.56.0@sha256:727da0cc35a6d73ed2913a38d56c4b9b4476c075149492e4fbf75552e83361ff` (multi-arch index; the binary is static, the base is Alpine) | `podman pull`, `podman image inspect`; 0.53.0's digest matched the spike's |
+| Release image | `docker.io/ironsh/iron-proxy:0.56.0@sha256:727da0cc35a6d73ed2913a38d56c4b9b4476c075149492e4fbf75552e83361ff`: its binary (built with Go 1.27.3) has 5 HIGH vulnerabilities in dependencies: go-jose 4.1.4 (CVE-2026-116587, fixed in 4.1.6), x/net 0.58.0 (CVE-2026-78661, CVE-2026-78669, fixed in 0.62.0 and 0.60.0), grpc 1.83.0 (CVE-2026-84304, CVE-2026-84445, fixed in 1.83.1 and 1.83.2). All are denial of service. 0.57.0 to 0.59.0 still ship go-jose 4.1.4 and x/net 0.58.0 | Trivy in `make scan-images` (CI run on this PR); `go.mod` at each tag |
+| What we build | the module `github.com/ironsh/iron-proxy@v0.56.0` (sumdb-checked), built with Go 1.27.4 from `packaging/iron-proxy/build/go.mod`, which raises only go-jose to 4.1.6 (2026-10-14), x/net to 0.62.0 (2026-10-27) and grpc to 1.83.2 (2026-08-25), all past the cooldown; x/crypto, x/sys and x/text move with x/net. iron-proxy's own tests (`go test ./internal/...`) pass with these versions | `go list -m -json`, `go version -m` on both binaries |
 | Maintainers | 13 authors in 199 commits since 2026-04-01; 78 of the commits since May by one maintainer | `git shortlog` at `v0.56.0` |
 | Behaviour used here | `tls.mode: sni-only` (no termination; the pipeline runs on the CONNECT target **and** on the ClientHello SNI; the upstream port is always 443), `dns.enabled: false`, `upstream_deny_cidrs` checked at connect time against the resolved address (IPv4-mapped addresses unmapped), allowlist `domains` with `*.domain` globs | source at `v0.56.0`: `internal/proxy/tunnel.go`, `sni_passthrough.go`, `internal/dnsguard`, `internal/hostmatch`; and the runs below |
 
@@ -111,6 +112,7 @@ Linux, Podman 4.9.3 (rootful, netavark), amd64, 2026-11-23:
   sandbox, a tool's own iron-proxy next to the sandbox and without one, the audit log.
 - By hand: `CONNECT pypi.org:22` with TLS reached pypi.org on 443 (no port pivot); plain HTTP to
   pypi.org:22 was dialled (the exception above).
+- The same 14 checks pass again with iron-proxy built from source with the fixed dependencies.
 
 **Not run yet:** rootless Podman, macOS and Windows (Podman machine), arm64, a hosted CI runner.
 The other e2e checks that failed in this environment failed for reasons unrelated to the proxy
@@ -124,9 +126,12 @@ intercepting network); they need a run on J's machine.
 - Allowed hosts remain exfiltration paths, as with `burrow-proxy`.
 - Single-vendor upstream with one main maintainer (DR-0009); `burrow-proxy` stays as the default and
   the fallback.
-- The image copies iron-proxy's release binary; it is not rebuilt from source here, and its
-  signatures are not verified (D7: no signing solution yet). How it could be verified: upstream
-  publishes a signing key (`public-key.asc`, `sign-release.sh`) for its release archives.
+- iron-proxy is built from its Go module with newer dependencies than upstream released, so the
+  binary is ours, not upstream's: its behaviour was checked with upstream's unit tests and our
+  e2e, not upstream's integration tests. Drop the overrides when an upstream release carries the
+  fixes (Dependabot watches `packaging/iron-proxy/build`).
+- Nothing is signed yet (D7). How it could be verified: the module and its dependencies are
+  pinned in `go.sum` and checked against the Go checksum database at build time.
 
 ## Why the others were discarded
 
