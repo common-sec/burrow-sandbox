@@ -1,0 +1,7 @@
+# A sandbox with curl (speaks CONNECT through HTTPS_PROXY; busybox wget does not). Used by the
+# end-to-end tests and the example sandbox file.
+NAME=curl
+DESCRIPTION=Alpine sandbox with curl (test preset)
+IMAGE=localhost/burrow-test-curl:dev
+WORKSPACE_MODE=rw
+NETWORK=proxy

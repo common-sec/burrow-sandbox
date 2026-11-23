@@ -1,0 +1,61 @@
+name: CI
+
+# CI runs the same Makefile targets a developer runs locally (local first). Nothing but GitHub's
+# own checkout action is used, pinned by commit SHA. Nothing is installed on the runner: every tool
+# runs in a container pinned by digest, the same as on a developer's machine (decision 0010).
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, test, vuln, build, forwarder
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: podman --version
+      - run: make check
+      - name: Checksums of this build
+        run: cat dist/SHA256SUMS
+
+  scan:
+    name: scan (${{ matrix.scan }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        scan: [secrets, sast, deps, images]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # full history, so the secrets scan sees every commit
+      # `images` builds the proxy and forwarder images first, then scans them for
+      # vulnerabilities and secrets.
+      - name: ${{ matrix.scan }} (rootless podman, same target as `make scan`)
+        run: make scan-${{ matrix.scan }}
+
+  e2e:
+    name: end-to-end on rootless Podman
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: podman --version
+      # Builds burrow in its container first (make build), then runs the checks with that binary.
+      - run: make e2e
+      - name: Build from the build context too (for Podman machine shares without file locking)
+        run: BUILD_MODE=context sh scripts/build-in-container.sh

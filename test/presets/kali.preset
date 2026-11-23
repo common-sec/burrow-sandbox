@@ -1,0 +1,10 @@
+# A plain Kali sandbox: burrow run kali --name dev, then burrow shell dev -- bash
+# Nothing allowed out until your sandbox file allows it. Tools: build your own image FROM
+# test/images/kali (the sandbox user has no root and no capabilities, so it cannot apt install).
+# Raw-socket scans (nmap -sS) need NET_RAW, which sandboxes never get: run such a tool as a preset
+# with CAP_ADD=NET_RAW next to the sandbox instead.
+NAME=kali
+DESCRIPTION=Kali Linux (rolling) sandbox with a shell (test preset)
+IMAGE=localhost/burrow-test-kali:dev
+WORKSPACE_MODE=rw
+NETWORK=proxy

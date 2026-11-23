@@ -1,0 +1,13 @@
+# Trivy as a plain tool: no default arguments, so a `trivy` shim can call
+#   burrow exec trivy -- "$@"
+# and scripts work the same with and without burrow (roadmap 0.4, shims).
+# Workspace: the sandbox's mode, read-only without a sandbox. Network: its own proxy, only the
+# vulnerability database mirrors. Cache: the sandbox's trivy cache (shared with trivy-db/-scan).
+NAME=trivy
+DESCRIPTION=Trivy scanner, any arguments (shimmable; test preset)
+IMAGE=localhost/burrow-test-trivy:dev
+WORKSPACE_MODE=inherit:ro
+NETWORK=proxy
+ALLOW=mirror.gcr.io,ghcr.io,pkg-containers.githubusercontent.com
+CACHE=trivy:/cache:rw
+ENV=TRIVY_CACHE_DIR=/cache,TRIVY_SKIP_VERSION_CHECK=true,TRIVY_DISABLE_TELEMETRY=true

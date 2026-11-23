@@ -1,0 +1,11 @@
+# Claude Code in a persistent sandbox: burrow run claude --name dev, then burrow shell dev -- claude
+# Credentials: log in inside the sandbox; the token stays in its home volume (burrow-NAME-home),
+# never on the host and never in this file. Secrets through the proxy are on the roadmap (0.3).
+# ALLOW: the hosts the agent needs for its API and login, from the vendor's documentation
+# (*unverified*: check them on first use). A sandbox file's ALLOW replaces this list.
+NAME=claude
+DESCRIPTION=Claude Code agent sandbox (test preset)
+IMAGE=localhost/burrow-test-claude:dev
+WORKSPACE_MODE=rw
+NETWORK=proxy
+ALLOW=api.anthropic.com,claude.ai,platform.claude.com,console.anthropic.com

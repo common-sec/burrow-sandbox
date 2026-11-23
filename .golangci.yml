@@ -1,0 +1,27 @@
+# golangci-lint v2. Security linters first: gosec, plus the checks that catch the usual Go
+# mistakes in a tool that runs other programs and handles network input.
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard            # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gosec                    # security: command execution, file permissions, TLS, SSRF patterns
+    - bodyclose                # unclosed HTTP response bodies
+    - noctx                    # network calls without a context (no timeout, no cancel)
+    - errorlint                # error wrapping and comparison done right
+    - forcetypeassert          # unchecked type assertions (panics on hostile input)
+    - nilerr                   # returning nil after checking an error
+    - misspell
+    - revive
+  settings:
+    gosec:
+      excludes: []             # nothing silenced globally; exceptions are //nolint with a reason
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, forcetypeassert]
+formatters:
+  enable:
+    - gofumpt
+    - goimports

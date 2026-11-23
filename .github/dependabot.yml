@@ -1,0 +1,146 @@
+# Dependabot keeps pinned dependencies current (D1). Checked every day.
+# - Version updates wait for a 7-day cooldown, the same rule as everywhere in burrow: a release
+#   is only proposed once it has been public for a week. Security updates skip the cooldown.
+# - Minor and patch updates come as ONE grouped PR per ecosystem; majors one PR each, to review.
+# - Security updates come grouped per ecosystem too. They need "Dependabot security updates"
+#   switched on in the repository (Settings > Advanced Security); this file only shapes the PRs.
+# - Review: the security team, through .github/CODEOWNERS (Dependabot's `reviewers` option was
+#   removed in May 2025 in favour of code owners).
+# - One PR across ecosystems (multi-ecosystem-groups) is not used: as documented it cannot be
+#   limited to minor and patch, so majors would hide inside it (docs/decisions/0006).
+# The developer tools (Go, golangci-lint) are images in packaging/dev/Dockerfile, so Dependabot
+# updates them like any other image (decision 0010). Not covered: the pinned image constants in Go
+# tests (by hand, issue #7).
+version: 2
+
+updates:
+  # Go modules (go.sum).
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(go)"
+
+  # Rust forwarder (crates/burrow-forward/Cargo.lock). No dependencies today; this catches any
+  # that are added and keeps the lockfile honest.
+  - package-ecosystem: cargo
+    directory: /crates/burrow-forward
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(cargo)"
+
+  # Base images, pinned by tag + digest: the proxy and forwarder images, and the images of the
+  # test presets (test/images/<name>/Dockerfile, one per preset so each can be updated here).
+  - package-ecosystem: docker
+    directories:
+      - /packaging/proxy
+      - /packaging/dev
+      - /packaging/burrow
+      - /packaging/forward
+      - /packaging/scanners
+      - /test/images/alpine
+      - /test/images/curl
+      - /test/images/trivy
+      - /test/images/ubuntu
+      - /test/images/kali
+      - /test/images/claude
+      - /test/images/codex
+      - /test/images/opencode
+      - /test/images/pi
+      - /test/images/hermes
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(docker)"
+
+  # Agents in the sandbox images (test/images/<agent>/package-lock.json, exact versions with
+  # integrity hashes). One grouped PR for minor and patch; majors one by one.
+  - package-ecosystem: npm
+    directories:
+      - /test/images/claude
+      - /test/images/codex
+      - /test/images/opencode
+      - /test/images/pi
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(npm)"
+
+  # Hermes Agent and its dependencies (test/images/hermes/requirements.txt, hashes). Dependabot
+  # updates requirements.txt; regenerate the hashes from requirements.in if a PR leaves them stale.
+  - package-ecosystem: pip
+    directory: /test/images/hermes
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(pip)"
+
+  # GitHub Actions (pinned by commit SHA).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(actions)"

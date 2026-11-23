@@ -1,0 +1,23 @@
+# A sandbox file: `burrow up` in this folder (or `burrow up -f examples/burrow.sandbox`), then
+# `burrow shell dev`. Like a compose file, it names a preset and adds local settings: every key
+# set here wins over the preset's, and `--image` on the command line wins over both.
+# Keys: docs/DEFINITIONS.md. The preset comes from your presets folder (`burrow presets`); to try
+# this one, use the test presets: BURROW_PRESETS_DIR=test/presets burrow up -f examples/burrow.sandbox
+NAME=dev
+# The image, user and defaults come from the preset (curl: Alpine with curl, which speaks
+# CONNECT through the proxy). To use your own dev image with these settings:
+#   burrow up --image registry.example/dev:1@sha256:...
+PRESET=curl
+# The project folder, relative to this file, mounted at /work. On Windows: WORKSPACE="C:\src\app"
+# (share only this folder with the Podman machine: docs/WINDOWS.md).
+WORKSPACE=.
+WORKSPACE_MODE=rw
+# The only hosts the sandbox's proxy lets through (HTTPS, port 443). *.domain = any subdomain.
+# Tools run with `burrow exec PRESET` and NETWORK=inherit get this same list (through their own proxy).
+ALLOW=pypi.org,files.pythonhosted.org,proxy.golang.org,sum.golang.org,registry.npmjs.org
+# Plain settings for the sandbox (never secrets: those come from the proxy, roadmap 0.3).
+ENV=GOFLAGS=-mod=readonly
+# Tools next to this sandbox get what their preset asks for (default). STRICT=true caps them by
+# this sandbox: workspace mode, allowlist (must be covered by ALLOW above), no added capabilities.
+STRICT=false
+MEMORY=4g

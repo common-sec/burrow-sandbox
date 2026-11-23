@@ -1,0 +1,11 @@
+# Trivy database update. Network only through its own proxy, which allows only the DB mirror.
+# Never sees the workspace. Writes the sandbox's trivy cache (burrow-cache-<sandbox>_trivy).
+#   burrow exec trivy-db   (next to a sandbox: -s NAME, or a burrow.sandbox here)
+NAME=trivy-db
+DESCRIPTION=Trivy database update into the cache, nothing else (test preset)
+IMAGE=localhost/burrow-test-trivy:dev
+WORKSPACE_MODE=none
+NETWORK=proxy
+ALLOW=mirror.gcr.io
+CACHE=trivy:/cache:rw
+ARGS=fs --cache-dir /cache --skip-version-check --disable-telemetry --quiet --download-db-only --db-repository mirror.gcr.io/aquasec/trivy-db:2 /tmp
