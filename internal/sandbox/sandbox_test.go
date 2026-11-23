@@ -450,7 +450,7 @@ func TestUserFlag(t *testing.T) {
 	}{
 		{"2000:2000", true},
 		{"", true},      // the preset's RUN_AS
-		{"0:0", true},   // root: only from --user (decision 0011)
+		{"0:0", true},   // root, with a warning (decision 0011)
 		{"root", false}, // a name
 		{"0", false},    // no gid
 		{"1000", false}, // no gid
@@ -482,5 +482,29 @@ func TestUserFlag(t *testing.T) {
 		if sh[0] != "exec" || !has(sh, "--user", c.user) {
 			t.Fatalf("shell --user %q: %v", c.user, sh)
 		}
+	}
+}
+
+// U22: a tool preset may ask for root (decision 0011); it still gets no capabilities and no new
+// privileges.
+func TestExecRootPreset(t *testing.T) {
+	m, rec := setup(t, config.EngineCrun)
+	p := &config.Preset{
+		Name: "build", Image: pinned, WorkspaceMode: config.WorkspaceRO,
+		Network: config.NetworkNone, Engine: config.EngineCrun, RunAs: "0:0",
+	}
+	n := len(rec.Calls)
+	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var run []string
+	for _, c := range rec.Calls[n:] {
+		if c[0] == "run" {
+			run = c
+		}
+	}
+	if !has(run, "--user", "0:0") || !has(run, "--cap-drop", "ALL") ||
+		!has(run, "--security-opt", "no-new-privileges") || slices.Contains(run, "--privileged") {
+		t.Fatalf("root preset: %v", run)
 	}
 }

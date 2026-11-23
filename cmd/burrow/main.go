@@ -53,8 +53,8 @@ Usage:
         the presets in your presets folder
   burrow version
 
---user UID:GID runs as that user instead of the preset's RUN_AS. 0:0 (root) is allowed here only,
-never from a preset or sandbox file; root still has no capabilities.
+--user UID:GID runs as that user instead of the preset's RUN_AS. Root (0:0) is allowed from the
+flag, a preset or a sandbox file; burrow warns every time, and root still has no capabilities.
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
 
 Global flags (before the command):
@@ -88,13 +88,24 @@ func hint(err error) string {
 	return ""
 }
 
-// warnRoot says it plainly when --user asks for root (decision 0011).
-func warnRoot(user string) {
-	if user != "" && config.CheckUser(user) == nil && config.IsRoot(user) {
-		fmt.Fprintln(os.Stderr, "burrow: warning: --user "+user+" runs as root inside: no capabilities "+
-			"and no new privileges, but root can change everything in the container, and the "+
-			"workspace files it writes are yours on the host")
+// warnRoot says it plainly whenever a sandbox, tool or shell runs as root, and where root was
+// asked for: --user, a preset or a sandbox file (decision 0011).
+func warnRoot(user, from string) {
+	if w := rootWarning(user, from); w != "" {
+		fmt.Fprintln(os.Stderr, w)
 	}
+}
+
+func rootWarning(user, from string) string {
+	if user == "" || config.CheckUser(user) != nil || !config.IsRoot(user) {
+		return ""
+	}
+	if from == "" {
+		from = "RUN_AS"
+	}
+	return "burrow: warning: " + from + " " + user + " runs as root inside: no capabilities and no " +
+		"new privileges, but root can change everything in the container, and the workspace files it " +
+		"writes are yours on the host"
 }
 
 func run(argv []string) error {
@@ -153,7 +164,6 @@ func run(argv []string) error {
 		if err != nil || len(pos) != 0 {
 			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID]")
 		}
-		warnRoot(*user)
 		keys, err := config.LoadSandboxFile(*file)
 		if err != nil {
 			return err
@@ -169,6 +179,7 @@ func run(argv []string) error {
 			return fmt.Errorf("%s: %w", *file, err)
 		}
 		e.Definition = *file
+		warnRoot(e.RunAs, strings.Replace(e.RunAsFrom, "the sandbox file", *file, 1))
 		return up(ctx, m, e)
 	case "run":
 		name := sub.String("name", "", "")
@@ -179,7 +190,6 @@ func run(argv []string) error {
 		if err != nil || len(pos) != 1 {
 			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]")
 		}
-		warnRoot(*user)
 		p, err := find(pos[0])
 		if err != nil {
 			return err
@@ -192,6 +202,7 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
+		warnRoot(e.RunAs, e.RunAsFrom)
 		return up(ctx, m, e)
 	case "exec":
 		name := sub.String("s", "", "")
@@ -202,13 +213,17 @@ func run(argv []string) error {
 		if err != nil || len(pos) != 1 {
 			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]")
 		}
-		warnRoot(*user)
 		if *name != "" && *ws != "" {
 			return errors.New("exec: --workspace is for a tool without a sandbox; a sandbox brings its own")
 		}
 		p, err := find(pos[0])
 		if err != nil {
 			return err
+		}
+		if *user != "" {
+			warnRoot(*user, "--user")
+		} else {
+			warnRoot(p.RunAs, "RUN_AS in preset "+p.Name+" ("+p.Source+")")
 		}
 		if *name == "" && *ws == "" {
 			if *name, err = nameFromFile(); err != nil {
@@ -226,7 +241,7 @@ func run(argv []string) error {
 		if err != nil || len(pos) > 1 {
 			return errors.New("usage: burrow shell [NAME] [--user UID:GID] [-- CMD ARGS...]")
 		}
-		warnRoot(*user)
+		warnRoot(*user, "--user")
 		name, err := nameArg(pos)
 		if err != nil {
 			return err

@@ -16,7 +16,9 @@
 - burrow checks Podman (4.9+, netavark) before creating anything.
 - `docs/WINDOWS.md`: steps for a dedicated WSL distro that shares only the work folder, with
   interop off and no sudo, marked as a temporary protection (E1).
-- `--user UID:GID` on `run`, `up`, `exec` and `shell` overrides the preset's `RUN_AS`; `0:0` (root, no capabilities) only from the flag, with a warning (decision 0011).
+- `--user UID:GID` on `run`, `up`, `exec` and `shell` overrides the preset's `RUN_AS`. Root (`0:0`, no
+  capabilities) is allowed from the flag, a preset or a sandbox file, with a warning that names where it
+  came from (decision 0011).
 - Nothing is installed on the host: vet, golangci-lint, tests, govulncheck, fmt and the build run
   in pinned images (`packaging/dev/Dockerfile`); mise, `mise.lock` and its installer are gone
   (decision 0010). The scanner pins moved from `compose.yaml` to

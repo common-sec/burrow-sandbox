@@ -38,7 +38,7 @@ For a sandbox `dev` (from `burrow up` or `burrow run`):
 
 `--cap-drop ALL` (a tool preset may add back capabilities from a short list with `CAP_ADD`, see
 below), `--security-opt no-new-privileges`, `--http-proxy=false` (podman otherwise copies
-the host's proxy variables, credentials included, into the container), a non-root user (`RUN_AS`, never uid 0),
+the host's proxy variables, credentials included, into the container), a non-root user by default (`RUN_AS`; root only when asked for, with a warning, decision 0011),
 `--pids-limit`. Proxy, forwarder and tools also get `--read-only` and a memory limit. The
 sandbox maps the host user to its own uid (`--userns keep-id`) so workspace files keep their owner;
 tools that mount the workspace do the same with their own uid. A sandbox file inside a read-write
@@ -83,7 +83,7 @@ definition file and a compromised dependency of burrow.
 | Definitions | the agent edits them to widen its next sandbox or tool | presets are never looked up in the workspace; the sandbox file is mounted read-only inside the sandbox | a preset or sandbox file given by path into the workspace is trusted as the user's choice; files the agent can write elsewhere in the workspace (e.g. a second sandbox file) are not protected |
 | burrow's own supply chain | compromised dependency or tool | no Go or Rust dependencies at run time (govulncheck is a pinned dev tool); no tools installed on the host: each runs in an image pinned by digest, the checks with no network; 7-day cooldown; scans before push; daily Dependabot reviewed by the security team | Dependabot does not update image constants in tests; `make fmt` mounts the repository read-write into the pinned golangci-lint image |
 | Images burrow starts | a process on the host (for example a sandbox port forwarded to `127.0.0.1:443`) answers as the registry `localhost` and serves its own image for a missing `localhost/` image | `localhost/` images are run with `--pull=never`: a missing one is an error with the build command; other images are pinned by digest and pulled only when missing | a local image already in the store is trusted as built |
-| The sandbox's user | a preset or sandbox file asks for root, so the agent (or a shared preset) gets root inside | `RUN_AS` is never root; only the `--user` flag, typed by the person running burrow, may be `0:0` (decision 0011), with a warning; root keeps no capabilities and no-new-privileges; a stored sandbox that says root without `USER_FLAG` is refused | root inside can change every file in the container and in an rw workspace |
+| The sandbox's user | a preset or sandbox file asks for root, so the agent (or a shared preset) gets root inside | the defaults are never root; root comes only from `--user`, a preset in the user's presets folder or a sandbox file (never from the workspace implicitly; a sandbox file in the workspace is read-only inside), and every run as root prints a warning naming where it came from (decision 0011); root keeps no capabilities and no-new-privileges, and with rootless Podman it is the host user | root inside can change every file in the container and in an rw workspace; a shared or downloaded preset can ask for root, and only the warning shows it (a verification step for such presets is being evaluated) |
 
 ## Podman-native, not a new engine
 

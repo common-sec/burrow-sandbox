@@ -22,7 +22,7 @@ A pinned image and the least-privilege settings its tool needs ([decision
 | `ALLOW` | none | hosts the proxy lets through (port 443): `pypi.org`, or `*.github.com` for subdomains. Needs `NETWORK=proxy` or `inherit:proxy`. |
 | `ENV` | none | plain settings, `KEY=VALUE,KEY=VALUE`. Not for secrets (those come through the proxy, roadmap 0.3); `*_PROXY` keys are refused (burrow sets them). |
 | `ENGINE` | `crun` | `crun`, or `krun` (experimental microVM; Linux with KVM) |
-| `RUN_AS` | `65532:65532` (tool), `1000:1000` (sandbox) | uid:gid inside; the host user is mapped to it when the workspace is mounted; uid 0 refused |
+| `RUN_AS` | `65532:65532` (tool), `1000:1000` (sandbox) | uid:gid inside; the host user is mapped to it when the workspace is mounted; uid 0 (root) is allowed with a warning, still without capabilities (decision 0011) |
 | `MEMORY` | none | e.g. `4g` |
 | `ARGS` | none | *tool only*: arguments to the image's entrypoint; `-- ARGS` on the command line are appended |
 | `CACHE` | none | *tool only*: one or more `name:/path:mode`, comma-separated, mode `rw`, `ro` or `O` (overlay: writes discarded). See "Caches" below. |

@@ -14,7 +14,7 @@ reviewer** checks what burrow allows.
 |---|---|---|
 | U1 | As a developer, I start a sandbox for my project from a file in it (`burrow up`), so that the agent works on my code and nothing else of my machine. | E1, E2, E8; `sandbox.TestUpLayout`, `TestUpRefusesRunningSandbox` |
 | U2 | As a developer, I let the agent reach only the hosts I list, so that it cannot send my code anywhere else. | E3, E4, E5; `proxy.TestAllowed`, `TestAddrAllowed`, `TestConnectEndToEnd`, `TestOnlyConnect` |
-| U3 | As a developer, I know the agent cannot become root, start containers or reach Podman, so that it cannot escape to my machine. | E6, E7; `sandbox.TestUpLayout` (`--cap-drop ALL`, no socket) |
+| U3 | As a developer, I know the agent cannot become root (unless I ask for it), start containers or reach Podman, so that it cannot escape to my machine. | E6, E7; `sandbox.TestUpLayout` (`--cap-drop ALL`, no socket) |
 | U4 | As a developer, I know the agent cannot edit the sandbox file to widen its own next sandbox. | E9; `sandbox.TestDefinitionReadOnlyInsideWorkspace` |
 | U5 | As a developer, I open a port of a sandbox that is already running (a dev server), so that I can reach it from my browser, without giving the sandbox a way out. | F1, F2, F3; `sandbox.TestPortAndDown`; `burrow-forward` cargo tests |
 | U6 | As a developer, I start a quick sandbox from a preset on the current folder (`burrow run`). | R1, R2, R3 |
@@ -36,7 +36,7 @@ reviewer** checks what burrow allows.
 | U19 | As a developer, burrow tells me at once when my Podman is too old or uses the CNI backend, instead of failing inside podman. | `sandbox.TestCheckEngine`, `TestPreflightAsksPodmanInfo` |
 | U20 | As a developer, when an image I build locally is missing, burrow stops before creating anything and tells me which `make` target builds it; it never asks a "registry" on localhost for it. | `sandbox.TestImagePullPolicy`, `TestEveryRunSetsPullPolicy`, `TestUpRequiresLocalImages`, `main.TestHintForMissingLocalImage` |
 | U21 | As a developer, a `run` or `up` that fails leaves nothing behind, so I can fix the cause and run it again (no "network already exists"). | `sandbox.TestUpCleansUpAfterFailure` |
-| U22 | As a developer, I run a sandbox, a tool or a shell as another user (`--user UID:GID` on `run`, `up`, `exec`, `shell`) without editing the preset; `--user 0:0` gives root (still without capabilities) with a warning, and no preset or sandbox file can ask for root. | `sandbox.TestUserFlag`, `config.TestNewSandboxUserOverride`, `config.TestRootOnlyFromTheFlag` |
+| U22 | As a developer, I run a sandbox, a tool or a shell as another user (`--user UID:GID` on `run`, `up`, `exec`, `shell`) without editing the preset; root (`0:0`, still without capabilities) can come from the flag, a preset or a sandbox file, and burrow warns every time, naming where it came from. | `sandbox.TestUserFlag`, `sandbox.TestExecRootPreset`, `config.TestNewSandboxUserOverride`, `config.TestRootFromAnySource`, `main.TestRootWarning` |
 
 ## Isolation between sandboxes
 
@@ -48,5 +48,5 @@ reviewer** checks what burrow allows.
 
 | # | Story | Proved by |
 |---|---|---|
-| U16 | As a security reviewer, I know a crafted preset or sandbox file cannot add podman options (a mount path with a comma, a name starting with `-`, an unpinned image, root). | `config.TestLoadEnvRejects`, `TestLoadPreset` |
+| U16 | As a security reviewer, I know a crafted preset or sandbox file cannot add podman options (a mount path with a comma, a name starting with `-`, an unpinned image, a malformed user); root is allowed, with a warning (U22). | `config.TestLoadEnvRejects`, `TestLoadPreset` |
 | U17 | As a developer, presets are never picked up from my workspace, so that the agent cannot plant one. | `config.TestFindAndListPresets` |
