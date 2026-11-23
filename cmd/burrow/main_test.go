@@ -3,12 +3,14 @@ package main
 import (
 	"errors"
 	"flag"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/common-sec/burrow-sandbox/internal/config"
+	"github.com/common-sec/burrow-sandbox/internal/consent"
 )
 
 func TestParseArgsFlagsAnywhereBeforeDash(t *testing.T) {
@@ -119,5 +121,88 @@ func TestMountFlags(t *testing.T) {
 	w := hostMountWarnings(ms)
 	if len(w) != 1 || !strings.Contains(w[0], "/srv/x") || !strings.Contains(w[0], "--mount") || !strings.Contains(w[0], "change") {
 		t.Fatalf("warnings: %q", w)
+	}
+}
+
+type noTTY struct{}
+
+func (noTTY) Open() (io.ReadWriteCloser, error) { return nil, errors.New("no terminal") }
+
+// U24: root asked for by a file needs a person or a named flag; --user is the person's own.
+func TestRootNeedsAcceptance(t *testing.T) {
+	preset := "RUN_AS in preset kali (/p/kali.preset)"
+	for _, c := range []struct {
+		name       string
+		u          ui
+		user, from string
+		ok         bool
+	}{
+		{"not root", ui{}, "1000:1000", preset, true},
+		{"--user 0:0, CI mode", ui{policy: consent.Policy{CI: true}}, "0:0", "--user", true},
+		{"preset root, no terminal", ui{policy: consent.Policy{Terminal: noTTY{}}}, "0:0", preset, false},
+		{"preset root, CI mode", ui{policy: consent.Policy{CI: true}}, "0:0", preset, false},
+		{"preset root, --accept root", ui{policy: consent.Policy{CI: true, Accepted: map[string]bool{"root": true}}}, "0:0", preset, true},
+		{"sandbox file root, no terminal", ui{policy: consent.Policy{Terminal: noTTY{}}}, "0:1000", "RUN_AS in ./burrow.sandbox", false},
+	} {
+		err := c.u.allow(c.user, c.from)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err=%v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+}
+
+// U25: CI mode only tightens: the CI variable switches it on, CI=false does not switch --ci off,
+// CI mode never asks, and --accept takes known names only (no wildcard).
+func TestCIModeOnlyTightens(t *testing.T) {
+	preset := "RUN_AS in preset kali (/p/kali.preset)"
+	for _, c := range []struct {
+		name   string
+		ci     bool
+		accept string
+		env    map[string]string
+		user   string
+		from   string
+		ok     bool
+	}{
+		{"CI=true refuses root from a preset", false, "", map[string]string{"CI": "true"}, "0:0", preset, false},
+		{"CI=false does not switch --ci off", true, "", map[string]string{"CI": "false"}, "0:0", preset, false},
+		{"--accept root in CI", false, "root", map[string]string{"CI": "true"}, "0:0", preset, true},
+		{"--user 0:0 in CI", false, "", map[string]string{"CI": "1"}, "0:0", "--user", true},
+		{"no root in CI", true, "", nil, "1000:1000", preset, true},
+	} {
+		u, err := newUI(c.ci, c.accept, false, func(k string) string { return c.env[k] })
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		u.policy.Terminal = yesTTY{} // a terminal that would say yes: CI mode must not ask it
+		if !u.ci {
+			t.Fatalf("%s: CI mode is off", c.name)
+		}
+		if err := u.allow(c.user, c.from); (err == nil) != c.ok {
+			t.Errorf("%s: err=%v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+	if _, err := newUI(false, "all", false, func(string) string { return "" }); err == nil {
+		t.Error("--accept all: want an error")
+	}
+	if u, _ := newUI(false, "", false, func(string) string { return "" }); u.ci {
+		t.Error("no --ci, no CI: CI mode must be off")
+	}
+}
+
+type yesTTY struct{}
+
+func (yesTTY) Open() (io.ReadWriteCloser, error) {
+	return struct {
+		io.Reader
+		io.Writer
+		io.Closer
+	}{strings.NewReader("y\n"), io.Discard, io.NopCloser(nil)}, nil
+}
+
+// A preset path with a newline cannot start a GitHub Actions workflow command of its own.
+func TestAnnotationEscapes(t *testing.T) {
+	if got := annotation("RUN_AS in preset x (/p/a\n::add-mask::x%.preset)"); strings.ContainsAny(got, "\r\n") || !strings.Contains(got, "%0A") || !strings.Contains(got, "%25") {
+		t.Fatalf("annotation = %q", got)
 	}
 }

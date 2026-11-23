@@ -60,9 +60,9 @@ still load, and it is ignored.
 - The warning is printed once per command; nothing records it yet (audit log: roadmap).
 - `burrow shell` into a sandbox that already runs as root warns only when `--user` is given; the
   warning was printed at `up` or `run`.
-- A preset from someone else can ask for root and only the warning shows it. A verification step
-  for such presets on a developer's machine, and default settings for CI where nobody reads the
-  warning, are being evaluated separately.
+- A preset from someone else can ask for root. Since [decision 0013](0013-confirm-weakened-settings-ci-mode.md)
+  burrow asks the person on the terminal first, and without one (or in CI mode) refuses unless
+  `--accept root` is given.
 - Only the user setting follows the principle so far. Other settings (wider `CAP_ADD`, `NETWORK`
   overrides) will be decided one by one, each with its warning.
 

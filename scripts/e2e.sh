@@ -126,6 +126,20 @@ check M2-output-reached-host ok test -f "$ws2/dist/built"
 check M3-rest-of-workspace-read-only blocked $b exec --workspace "$ws2" .cache/e2e-build.preset -- 'echo x > /src/x'
 check M4-preset-cannot-mount-host blocked $b exec --workspace "$ws2" .cache/e2e-hostmount.preset -- true
 check M5-no-socket-folder blocked $b exec --workspace "$ws2" --mount "host:${XDG_RUNTIME_DIR:-/run}:/s:ro" .cache/e2e-read.preset
+# Root asked for by a preset (decision 0013): refused when nobody can confirm it, accepted only
+# by a flag that names it. setsid leaves the controlling terminal behind, like an agent or a script.
+cat > .cache/e2e-root.preset <<EOT
+NAME=root
+IMAGE=$alpine
+RUN_AS=0:0
+ARGS=id -u
+EOT
+# Each refusal must be burrow's own ("not accepted"), not a missing image or a typo (R12).
+refused() { out=$("$@" 2>&1); rc=$?; [ "$rc" -ge 1 ] && [ "$rc" -le 124 ] && echo "$out" | grep -q 'not accepted' && ! echo "$out" | grep -qx 0; }
+check A1-root-preset-refused-without-terminal ok refused setsid -w $b exec --workspace "$ws2" .cache/e2e-root.preset
+check A2-root-preset-refused-in-ci ok refused env CI=true $b exec --workspace "$ws2" .cache/e2e-root.preset
+check A3-piped-yes-does-not-answer ok refused sh -c "yes | setsid -w '$b' exec --workspace '$ws2' .cache/e2e-root.preset"
+check A4-root-preset-accepted-by-flag ok sh -c "'$b' --ci --accept root exec --workspace '$ws2' .cache/e2e-root.preset | grep -qx 0"
 # The shimmable trivy preset: any arguments, no default command.
 check T1-trivy-any-args ok $b exec --workspace "$ws2" trivy -- --version
 # An ad-hoc persistent sandbox from a preset in the presets folder.

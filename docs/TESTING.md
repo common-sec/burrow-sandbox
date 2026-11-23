@@ -59,6 +59,9 @@ never when it could not start.
 | S4 | `WORKSPACE_MODE=inherit:rw` without a sandbox: write | works |
 | S5, S6 | `NETWORK=inherit:proxy` without a sandbox: the preset's allowed host / another host | works / blocked |
 | T1 | the shimmable `trivy` preset takes any arguments | works |
+| A1, A2 | a preset with `RUN_AS=0:0`, run without a terminal (`setsid`) / with `CI=true` | blocked (burrow's own refusal, "not accepted") |
+| A3 | the same, with `yes` piped into stdin | blocked (the question is asked on the terminal, not stdin) |
+| A4 | the same with `--ci --accept root` | works, runs as uid 0 |
 | R1, R2 | `burrow run alpine` (preset from the presets folder); `shell` into it | works |
 | R3 | direct connection from it | blocked (no route) |
 | N0, N1 | from one sandbox's egress network, reach another sandbox's proxy | blocked (separate networks) |

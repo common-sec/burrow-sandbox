@@ -22,7 +22,7 @@ A pinned image and the least-privilege settings its tool needs ([decision
 | `ALLOW` | none | hosts the proxy lets through (port 443): `pypi.org`, or `*.github.com` for subdomains. Needs `NETWORK=proxy` or `inherit:proxy`. |
 | `ENV` | none | plain settings, `KEY=VALUE,KEY=VALUE`. Not for secrets (those come through the proxy, roadmap 0.3); `*_PROXY` keys are refused (burrow sets them). |
 | `ENGINE` | `crun` | `crun`, or `krun` (experimental microVM; Linux with KVM) |
-| `RUN_AS` | `65532:65532` (tool), `1000:1000` (sandbox) | uid:gid inside; the host user is mapped to it when the workspace is mounted; uid 0 (root) is allowed with a warning, still without capabilities (decision 0011) |
+| `RUN_AS` | `65532:65532` (tool), `1000:1000` (sandbox) | uid:gid inside; the host user is mapped to it when the workspace is mounted; uid 0 (root) is allowed with a warning, still without capabilities (decision 0011); burrow asks to confirm it on the terminal, and without one (or in CI mode) needs `--accept root` (decision 0013) |
 | `MEMORY` | none | e.g. `4g` |
 | `WORKDIR` | `/work` | where the workspace is mounted inside, and the working directory (`podman -w`); an absolute container path, not `/proc`, `/sys`, `/dev`, `/run`, `/etc` or below |
 | `MOUNT` | none | extra mounts, comma-separated: `tmpfs:TARGET[:SIZE]`, `volume:NAME:TARGET:MODE`, `work:SUBDIR:TARGET:MODE`. A preset can never mount a host folder (`host:` is refused). See "Mounts" below. |
