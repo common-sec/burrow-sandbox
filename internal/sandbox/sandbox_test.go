@@ -475,12 +475,12 @@ func TestUserFlag(t *testing.T) {
 		}
 		run, sh := rec.Calls[n], rec.Calls[len(rec.Calls)-1]
 		uid, gid, _ := strings.Cut(c.user, ":")
-		// Root needs no keep-id (crun rejects keep-id:uid=0); rootless root is the host user.
-		userns := has(run, "--userns", "keep-id:uid="+uid+",gid="+gid)
-		if config.IsRoot(c.user) {
-			userns = !slices.Contains(run, "--userns")
+		// Root gets no keep-id (the runtime rejects uid 0; rootless root is the host user already).
+		wantNS := has(run, "--userns", "keep-id:uid="+uid+",gid="+gid)
+		if uid == "0" {
+			wantNS = !slices.Contains(run, "--userns")
 		}
-		if !has(run, "--user", c.user) || !userns ||
+		if !has(run, "--user", c.user) || !wantNS ||
 			!has(run, "--cap-drop", "ALL") || !has(run, "--security-opt", "no-new-privileges") {
 			t.Fatalf("exec --user %q: %v", c.user, run)
 		}
@@ -508,15 +508,9 @@ func TestExecRootPreset(t *testing.T) {
 			run = c
 		}
 	}
-	if !has(run, "--user", "0:0") || !has(run, "--cap-drop", "ALL") ||
+	if !has(run, "--user", "0:0") || slices.Contains(run, "--userns") || !has(run, "--cap-drop", "ALL") ||
 		!has(run, "--security-opt", "no-new-privileges") || slices.Contains(run, "--privileged") {
 		t.Fatalf("root preset: %v", run)
-	}
-	// keep-id:uid=0 is rejected by crun; rootless Podman maps root to the host user already.
-	for _, a := range run {
-		if strings.HasPrefix(a, "keep-id") {
-			t.Fatalf("root preset must not use keep-id: %v", run)
-		}
 	}
 }
 
