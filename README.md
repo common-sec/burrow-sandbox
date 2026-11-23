@@ -18,8 +18,9 @@ Future work still to test: nested sandboxes (Podman in Podman), and an MCP-like 
 the agent start subagents and tools under the same restrictions ([roadmap](docs/ROADMAP.md)).
 
 > **Status: prototype (0.1).** It runs, it is tested end to end on rootless Podman, and it is meant
-> for trying the design, not for protecting anything yet. The proxy is a temporary stand-in until
-> a proxy solution is chosen. See the [roadmap](docs/ROADMAP.md).
+> for trying the design, not for protecting anything yet. The default proxy is a temporary stand-in;
+> `PROXY=iron` tries [iron-proxy](https://github.com/ironsh/iron-proxy), the proxy that will carry
+> secrets (experimental, [decision 0013](docs/decisions/0013-iron-proxy.md)). See the [roadmap](docs/ROADMAP.md).
 
 ## Why
 
@@ -84,6 +85,7 @@ cp dist/burrow-linux-amd64 ./burrow       # or burrow-darwin-arm64, burrow-windo
 
 # the images burrow starts: proxy, port forwarder, and the test presets' images
 podman build -f packaging/proxy/Dockerfile -t localhost/burrow-proxy:dev .
+podman build -f packaging/iron-proxy/Dockerfile -t localhost/burrow-iron-proxy:dev .   # for PROXY=iron
 podman build -f packaging/forward/Dockerfile -t localhost/burrow-forward:dev .
 for n in alpine curl trivy; do podman build -t "localhost/burrow-test-$n:dev" "test/images/$n"; done
 # optional, 1 to 2 GB each: sandboxes with an agent or a distribution inside
@@ -100,6 +102,7 @@ export BURROW_PRESETS_DIR=$PWD/test/presets
 ./burrow exec -s dev --strict trivy -- fs /work             # strict: refused, trivy wants hosts dev does not allow
 ./burrow port dev 8080                                      # publish a port after start
 ./burrow down dev                                           # keeps the home volume; --purge removes it
+./burrow up -f examples/burrow.sandbox --proxy iron         # the same with iron-proxy as the exit (experimental)
 
 # A tool on its own, on the current folder (workspace read-only):
 ./burrow exec trivy -- fs /work
@@ -124,8 +127,9 @@ Windows: [docs/WINDOWS.md](docs/WINDOWS.md).
 |---|---|
 | `cmd/burrow` | the CLI (sandbox manager) |
 | `cmd/burrow-proxy` | egress proxy, a **temporary stand-in** until a proxy solution is chosen (not to be extended except for a test or an investigation) |
+| `cmd/burrow-iron-proxy` | launcher for iron-proxy (`PROXY=iron`): renders its configuration and starts it, inside `packaging/iron-proxy` |
 | `crates/burrow-forward` | port forwarder for running sandboxes (Rust, standard library only) |
-| `internal/` | shared packages: `config`, `podman`, `sandbox`, `proxy` |
+| `internal/` | shared packages: `config`, `podman`, `sandbox`, `proxy`, `ironproxy` |
 | `packaging/<product>/` | how each product is packaged (container images now; releases later) |
 | `test/presets`, `test/images` | presets for tests and examples, and their images (one Dockerfile each) |
 | `examples/` | an example sandbox file |

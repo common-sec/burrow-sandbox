@@ -484,3 +484,117 @@ func TestUserFlag(t *testing.T) {
 		}
 	}
 }
+
+// ironFlags are what an iron-proxy container must have, besides the defaults on every proxy.
+var ironFlags = [][]string{
+	{"--tmpfs", "/run/burrow:rw,noexec,nosuid,nodev,size=1m,mode=0700,U"},
+	{"--memory", "128m"},
+	{"--pids-limit", "128"},
+}
+
+// proxyDefaults are on every proxy, whatever its kind.
+var proxyDefaults = [][]string{
+	{"--read-only"},
+	{"--user", "65532:65532"},
+	{"--cap-drop", "ALL"},
+	{"--security-opt", "no-new-privileges"},
+	{"--http-proxy=false"},
+}
+
+func checkFlags(t *testing.T, what string, args []string, want ...[]string) {
+	t.Helper()
+	for _, w := range want {
+		if !has(args, w...) {
+			t.Errorf("%s: missing %v in %v", what, w, args)
+		}
+	}
+}
+
+// U23: PROXY=iron starts iron-proxy as the sandbox's only exit, with the same layout and flags as
+// burrow-proxy (same arguments, internal network, own egress network), plus its tmpfs.
+func TestUpWithIronProxy(t *testing.T) {
+	rec := &podman.Recorder{Replies: map[string]string{"inspect": "10.89.0.2"}}
+	m := &Manager{Podman: rec, StateDir: t.TempDir()}
+	e := &config.Env{
+		Name: "dev", Image: pinned, Workspace: t.TempDir(), WorkspaceMode: config.WorkspaceRW,
+		Allow: []string{"pypi.org"}, Engine: config.EngineCrun, RunAs: "1000:1000",
+		Proxy: config.ProxyIron, ProxyImage: config.DefaultIronProxyImage, ForwardImage: config.DefaultForwardImage,
+	}
+	if err := m.Up(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	px := find(rec, "run", "-d", "--name", "burrow-dev-proxy")
+	checkFlags(t, "iron proxy", px, append(append([][]string{
+		{"--network", "burrow-dev-egress"},
+		{"--pull=never", config.DefaultIronProxyImage},
+		{"-listen", "0.0.0.0:3128"},
+		{"-allow", "pypi.org"},
+	}, proxyDefaults...), ironFlags...)...)
+	if has(px, "--memory", "64m") || slices.Contains(px, "--privileged") || slices.Contains(px, "-allow-private") {
+		t.Errorf("iron proxy: %v", px)
+	}
+	if find(rec, "network", "connect", "burrow-dev", "burrow-dev-proxy") == nil {
+		t.Fatal("iron proxy not connected to the internal network")
+	}
+	if find(rec, "image", "exists", config.DefaultIronProxyImage) == nil {
+		t.Fatal("the iron-proxy image is not checked before start")
+	}
+	sb := find(rec, "run", "-d", "--name", "burrow-dev")
+	checkFlags(t, "sandbox", sb, []string{"--network", "burrow-dev"}, []string{"-e", "HTTPS_PROXY=http://10.89.0.2:3128"})
+	// A tool next to the sandbox gets its own iron-proxy, never the sandbox's network.
+	p := &config.Preset{
+		Name: "db", Image: pinned, WorkspaceMode: config.WorkspaceNone, Network: config.NetworkInherit,
+		Engine: config.EngineCrun, RunAs: "65532:65532",
+	}
+	n := len(rec.Calls)
+	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	tp := with(rec.Calls[n:], "-allow")
+	checkFlags(t, "tool proxy", tp, append(append([][]string{
+		{"--pull=never", config.DefaultIronProxyImage}, {"-allow", "pypi.org"},
+	}, proxyDefaults...), ironFlags...)...)
+	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{Proxy: config.ProxyBurrow}); err == nil {
+		t.Error("--proxy next to a sandbox: want error (the tool gets its sandbox's kind)")
+	}
+}
+
+// U23: a tool without a sandbox picks the proxy with --proxy; burrow-proxy by default.
+func TestExecWithoutSandboxProxyKind(t *testing.T) {
+	for _, c := range []struct {
+		kind  config.ProxyKind
+		image string
+		ok    bool
+	}{
+		{"", config.DefaultProxyImage, true},
+		{config.ProxyBurrow, config.DefaultProxyImage, true},
+		{config.ProxyIron, config.DefaultIronProxyImage, true},
+		{"envoy", "", false},
+		{"iron,burrow", "", false},
+	} {
+		rec := &podman.Recorder{Replies: map[string]string{"inspect": "10.89.0.2"}}
+		m := &Manager{Podman: rec, StateDir: t.TempDir()}
+		p := &config.Preset{
+			Name: "get", Image: pinned, WorkspaceMode: config.WorkspaceNone, Network: config.NetworkProxy,
+			Allow: []string{"ghcr.io"}, Engine: config.EngineCrun, RunAs: "65532:65532",
+		}
+		err := m.Exec(context.Background(), "", t.TempDir(), p, nil, ExecOptions{Proxy: c.kind})
+		if (err == nil) != c.ok {
+			t.Errorf("--proxy %q: err=%v, want ok=%v", c.kind, err, c.ok)
+			continue
+		}
+		if !c.ok {
+			if len(rec.Calls) != 0 {
+				t.Errorf("--proxy %q: refused after starting %v", c.kind, rec.Calls)
+			}
+			continue
+		}
+		px := with(rec.Calls, "-allow")
+		checkFlags(t, string(c.kind), px, append(proxyDefaults, []string{"--pull=never", c.image}, []string{"-allow", "ghcr.io"})...)
+		if c.kind == config.ProxyIron {
+			checkFlags(t, "iron", px, ironFlags...)
+		} else if slices.Contains(px, "--tmpfs") {
+			t.Errorf("burrow-proxy needs no tmpfs: %v", px)
+		}
+	}
+}

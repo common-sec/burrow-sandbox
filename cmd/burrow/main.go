@@ -33,11 +33,11 @@ burrow runs tool and environment presets focused on security, not images: a pres
 image plus the least privilege it needs. Presets live in your presets folder (` + "`burrow presets`" + `).
 
 Usage:
-  burrow up [-f FILE] [--image IMAGE] [--user UID:GID]
+  burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [--proxy burrow|iron]
         start the persistent sandbox defined by a sandbox file (default ./` + SandboxFile + `)
-  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]
+  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [--proxy burrow|iron]
         start an ad-hoc persistent sandbox from a preset (workspace: current folder)
-  burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]
+  burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] [--proxy burrow|iron] PRESET [-- ARGS...]
         run a preset as a one-off tool next to the sandbox, with what the preset asks for.
         Where the preset says inherit, it takes the sandbox's workspace mode and allowlist;
         without a sandbox (-s, or a sandbox file here) it takes the preset's fallback.
@@ -55,6 +55,8 @@ Usage:
 
 --user UID:GID runs as that user instead of the preset's RUN_AS. 0:0 (root) is allowed here only,
 never from a preset or sandbox file; root still has no capabilities.
+--proxy (or PROXY= in the sandbox file) picks the sandbox's only exit: burrow (default) or iron
+(iron-proxy, experimental). Tools next to a sandbox get the same kind of proxy, their own instance.
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
 
 Global flags (before the command):
@@ -94,6 +96,14 @@ func warnRoot(user string) {
 		fmt.Fprintln(os.Stderr, "burrow: warning: --user "+user+" runs as root inside: no capabilities "+
 			"and no new privileges, but root can change everything in the container, and the "+
 			"workspace files it writes are yours on the host")
+	}
+}
+
+// warnProxy says what PROXY=iron does not block yet (decision 0013, exception with an expiry).
+func warnProxy(k config.ProxyKind) {
+	if k == config.ProxyIron {
+		fmt.Fprintln(os.Stderr, "burrow: warning: PROXY=iron is experimental: plain HTTP to an allowed host "+
+			"is forwarded (on any port), and *.domain also allows the domain itself (decision 0013)")
 	}
 }
 
@@ -149,9 +159,10 @@ func run(argv []string) error {
 		file := sub.String("f", SandboxFile, "")
 		image := sub.String("image", "", "")
 		user := sub.String("user", "", "")
+		proxyKind := sub.String("proxy", "", "")
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 0 {
-			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID]")
+			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [--proxy burrow|iron]")
 		}
 		warnRoot(*user)
 		keys, err := config.LoadSandboxFile(*file)
@@ -164,10 +175,13 @@ func run(argv []string) error {
 				return err
 			}
 		}
-		e, err := config.NewSandbox(p, keys, filepath.Dir(*file), config.Overrides{Image: *image, RunAs: *user})
+		e, err := config.NewSandbox(p, keys, filepath.Dir(*file), config.Overrides{
+			Image: *image, RunAs: *user, Proxy: config.ProxyKind(*proxyKind),
+		})
 		if err != nil {
 			return fmt.Errorf("%s: %w", *file, err)
 		}
+		warnProxy(e.Proxy)
 		e.Definition = *file
 		return up(ctx, m, e)
 	case "run":
@@ -175,9 +189,10 @@ func run(argv []string) error {
 		image := sub.String("image", "", "")
 		ws := sub.String("workspace", "", "")
 		user := sub.String("user", "", "")
+		proxyKind := sub.String("proxy", "", "")
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID]")
+			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [--proxy burrow|iron]")
 		}
 		warnRoot(*user)
 		p, err := find(pos[0])
@@ -188,19 +203,23 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		e, err := config.NewSandbox(p, nil, dir, config.Overrides{Name: *name, Image: *image, Workspace: dir, RunAs: *user})
+		e, err := config.NewSandbox(p, nil, dir, config.Overrides{
+			Name: *name, Image: *image, Workspace: dir, RunAs: *user, Proxy: config.ProxyKind(*proxyKind),
+		})
 		if err != nil {
 			return err
 		}
+		warnProxy(e.Proxy)
 		return up(ctx, m, e)
 	case "exec":
 		name := sub.String("s", "", "")
 		strict := sub.Bool("strict", false, "")
 		ws := sub.String("workspace", "", "")
 		user := sub.String("user", "", "")
+		proxyKind := sub.String("proxy", "", "")
 		pos, after, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] PRESET [-- ARGS...]")
+			return errors.New("usage: burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] [--proxy burrow|iron] PRESET [-- ARGS...]")
 		}
 		warnRoot(*user)
 		if *name != "" && *ws != "" {
@@ -219,7 +238,10 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		return m.Exec(ctx, *name, dir, p, after, sandbox.ExecOptions{Strict: *strict, User: *user})
+		warnProxy(config.ProxyKind(*proxyKind))
+		return m.Exec(ctx, *name, dir, p, after, sandbox.ExecOptions{
+			Strict: *strict, User: *user, Proxy: config.ProxyKind(*proxyKind),
+		})
 	case "shell":
 		user := sub.String("user", "", "")
 		pos, after, err := parseArgs(sub, rest)

@@ -78,6 +78,7 @@ podman run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --ht
 #   $c = podman create localhost/burrow-dist:dev /none; podman cp "${c}:/dist" .\dist; podman rm $c
 copy dist\burrow-windows-amd64.exe burrow.exe
 podman build -f packaging/proxy/Dockerfile -t localhost/burrow-proxy:dev .
+podman build -f packaging/iron-proxy/Dockerfile -t localhost/burrow-iron-proxy:dev .   # for PROXY=iron
 podman build -f packaging/forward/Dockerfile -t localhost/burrow-forward:dev .
 foreach ($n in "alpine","curl","trivy") { podman build -t "localhost/burrow-test-${n}:dev" "test/images/$n" }
 $env:BURROW_PRESETS_DIR = "$PWD\test\presets"

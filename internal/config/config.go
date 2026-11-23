@@ -57,6 +57,19 @@ const (
 	NetworkInherit NetworkMode = "inherit"
 )
 
+// ProxyKind is the proxy a sandbox (and the tools next to it) gets as its only exit.
+type ProxyKind string
+
+// Proxies.
+const (
+	// ProxyBurrow is burrow-proxy (internal/proxy): CONNECT to allowed hosts on allowed ports.
+	// The default until iron-proxy has passed on every platform (decision 0013).
+	ProxyBurrow ProxyKind = "burrow"
+	// ProxyIron is iron-proxy (github.com/ironsh/iron-proxy) behind burrow's launcher
+	// (cmd/burrow-iron-proxy): experimental, opt-in (decision 0013).
+	ProxyIron ProxyKind = "iron"
+)
+
 // ToolCaps are the capabilities a tool preset may ask for with CAP_ADD: at most Podman's own
 // default set plus NET_RAW. Nothing that administers the kernel, devices, namespaces or other
 // processes (SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN, BPF...). no-new-privileges stays on.
@@ -75,7 +88,8 @@ type Env struct {
 	Engine        Engine
 	RunAs         string // uid:gid inside the sandbox; the host user is mapped to it (keep-id)
 	UserFlag      bool   // RunAs came from --user (may be root), not from a preset or file
-	ProxyImage    string
+	Proxy         ProxyKind
+	ProxyImage    string // the image of Proxy, unless PROXY_IMAGE names another
 	ForwardImage  string
 	Memory        string   // podman --memory, optional
 	Env           []string // KEY=VALUE, not secret
@@ -179,11 +193,11 @@ func unquote(v string) (string, error) {
 
 // envKeys are the keys of a stored sandbox (state, written by burrow).
 var envKeys = keys("NAME", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "ALLOW", "ENGINE", "RUN_AS",
-	"PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "DEFINITION", "USER_FLAG")
+	"PROXY", "PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT", "DEFINITION", "USER_FLAG")
 
 // sandboxKeys are the keys of a sandbox file (`burrow up`).
 var sandboxKeys = keys("NAME", "PRESET", "IMAGE", "WORKSPACE", "WORKSPACE_MODE", "NETWORK", "ALLOW",
-	"ENGINE", "RUN_AS", "PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT")
+	"ENGINE", "RUN_AS", "PROXY", "PROXY_IMAGE", "FORWARD_IMAGE", "MEMORY", "ENV", "STRICT")
 
 var presetKeys = keys("NAME", "DESCRIPTION", "IMAGE", "ARGS", "WORKSPACE_MODE", "NETWORK", "ALLOW",
 	"ENGINE", "RUN_AS", "CACHE", "CAP_ADD", "ENV", "MEMORY")
@@ -201,9 +215,28 @@ func keys(k ...string) map[string]bool {
 
 // Defaults for images built locally by `make images`.
 const (
-	DefaultProxyImage   = "localhost/burrow-proxy:dev"
-	DefaultForwardImage = "localhost/burrow-forward:dev"
+	DefaultProxyImage     = "localhost/burrow-proxy:dev"
+	DefaultIronProxyImage = "localhost/burrow-iron-proxy:dev"
+	DefaultForwardImage   = "localhost/burrow-forward:dev"
 )
+
+// ProxyImageFor is the image of a proxy kind (an unknown kind gets burrow-proxy's image; Validate
+// refuses the kind itself).
+func ProxyImageFor(k ProxyKind) string {
+	if k == ProxyIron {
+		return DefaultIronProxyImage
+	}
+	return DefaultProxyImage
+}
+
+// CheckProxy accepts the known proxy kinds.
+func CheckProxy(k ProxyKind) error {
+	switch k {
+	case ProxyBurrow, ProxyIron:
+		return nil
+	}
+	return fmt.Errorf("PROXY %q: burrow or iron", k)
+}
 
 // LoadEnv reads and validates a stored sandbox (written by burrow).
 func LoadEnv(path string) (*Env, error) {
@@ -219,12 +252,13 @@ func LoadEnv(path string) (*Env, error) {
 		Allow:         list(m["ALLOW"]),
 		Engine:        Engine(def(m["ENGINE"], string(EngineCrun))),
 		RunAs:         def(m["RUN_AS"], "1000:1000"),
-		ProxyImage:    def(m["PROXY_IMAGE"], DefaultProxyImage),
+		Proxy:         ProxyKind(def(m["PROXY"], string(ProxyBurrow))),
 		ForwardImage:  def(m["FORWARD_IMAGE"], DefaultForwardImage),
 		Memory:        m["MEMORY"],
 		Env:           commaList(m["ENV"]),
 		Definition:    m["DEFINITION"],
 	}
+	e.ProxyImage = def(m["PROXY_IMAGE"], ProxyImageFor(e.Proxy))
 	var err2 error
 	e.Strict, err2 = parseBool("STRICT", m["STRICT"])
 	if err2 != nil {
@@ -247,6 +281,7 @@ type Overrides struct {
 	Image     string
 	Workspace string // absolute
 	RunAs     string // --user: uid:gid; unlike RUN_AS it may be root (exception in decision 0011)
+	Proxy     ProxyKind
 }
 
 // NewSandbox resolves a sandbox from a preset (may be nil), a sandbox file's keys (may be nil;
@@ -270,7 +305,7 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 			m[k] = v
 		}
 	}
-	for k, v := range map[string]string{"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace} {
+	for k, v := range map[string]string{"NAME": o.Name, "IMAGE": o.Image, "WORKSPACE": o.Workspace, "PROXY": string(o.Proxy)} {
 		if v != "" {
 			m[k] = v
 		}
@@ -287,11 +322,12 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 		Allow:         list(m["ALLOW"]),
 		Engine:        Engine(def(m["ENGINE"], string(EngineCrun))),
 		RunAs:         def(m["RUN_AS"], "1000:1000"),
-		ProxyImage:    def(m["PROXY_IMAGE"], DefaultProxyImage),
+		Proxy:         ProxyKind(def(m["PROXY"], string(ProxyBurrow))),
 		ForwardImage:  def(m["FORWARD_IMAGE"], DefaultForwardImage),
 		Memory:        m["MEMORY"],
 		Env:           commaList(m["ENV"]),
 	}
+	e.ProxyImage = def(m["PROXY_IMAGE"], ProxyImageFor(e.Proxy))
 	var err error
 	if e.Strict, err = parseBool("STRICT", m["STRICT"]); err != nil {
 		return nil, err
@@ -311,6 +347,9 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 
 // Validate checks every field; it is also run on definitions stored by `burrow up`.
 func (e *Env) Validate() error {
+	if e.Proxy == "" {
+		e.Proxy = ProxyBurrow // definitions stored before PROXY existed
+	}
 	var errs []error
 	if !nameRe.MatchString(e.Name) {
 		errs = append(errs, fmt.Errorf("NAME %q: 2 to 32 of a-z, 0-9 and '-'", e.Name))
@@ -318,7 +357,7 @@ func (e *Env) Validate() error {
 	if e.Name == "exec" {
 		errs = append(errs, errors.New(`NAME "exec" is reserved (tools run without a sandbox)`))
 	}
-	errs = append(errs, checkImage("IMAGE", e.Image), checkImage("PROXY_IMAGE", e.ProxyImage),
+	errs = append(errs, checkImage("IMAGE", e.Image), CheckProxy(e.Proxy), checkImage("PROXY_IMAGE", e.ProxyImage),
 		checkImage("FORWARD_IMAGE", e.ForwardImage), checkEngine(e.Engine), checkEnvUser(e),
 		checkHosts(e.Allow), checkMemory(e.Memory), checkEnv(e.Env))
 	switch e.WorkspaceMode {
@@ -659,6 +698,7 @@ func (e *Env) String() string {
 	w("ALLOW", strings.Join(e.Allow, ","))
 	w("ENGINE", string(e.Engine))
 	w("RUN_AS", e.RunAs)
+	w("PROXY", string(e.Proxy))
 	w("PROXY_IMAGE", e.ProxyImage)
 	w("FORWARD_IMAGE", e.ForwardImage)
 	w("MEMORY", e.Memory)

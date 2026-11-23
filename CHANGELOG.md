@@ -19,6 +19,9 @@
   in pinned images (`packaging/dev/Dockerfile`); mise, `mise.lock` and its installer are gone
   (decision 0010). The scanner pins moved from `compose.yaml` to
   `packaging/scanners/Dockerfile`.
+- `PROXY=iron` (sandbox file) and `--proxy iron` (`up`, `run`, `exec`): iron-proxy 0.56.0 as the
+  only exit, started by a launcher in `packaging/iron-proxy` (experimental, opt-in, with a warning;
+  decision 0013). e2e checks X1 to X14.
 - Temporary proxy (CONNECT, host allowlist, no private addresses) and a port forwarder in Rust
   (decision 0008); a dedicated egress network per proxy.
 - Local-first checks and scans through a Makefile, CI running the same targets, daily Dependabot

@@ -78,7 +78,8 @@ Like a compose file: names a preset and sets local values. `burrow up` reads `./
 | `NETWORK` | `proxy` | only `proxy` for a sandbox |
 | `ALLOW`, `ENGINE`, `RUN_AS`, `MEMORY`, `ENV` | | as for a preset |
 | `STRICT` | `false` | `true`: every tool run next to this sandbox is capped by it (as `exec --strict`) |
-| `PROXY_IMAGE` | `localhost/burrow-proxy:dev` | the proxy image |
+| `PROXY` | `burrow` | the sandbox's only exit: `burrow` (burrow-proxy) or `iron` (iron-proxy, experimental, [decision 0013](decisions/0013-iron-proxy.md)); `--proxy` on the command line wins. Tools next to the sandbox get the same kind of proxy, their own instance. Not a preset key: the proxy is the user's choice |
+| `PROXY_IMAGE` | `localhost/burrow-proxy:dev`, or `localhost/burrow-iron-proxy:dev` with `PROXY=iron` | the proxy image |
 | `FORWARD_IMAGE` | `localhost/burrow-forward:dev` | the port forwarder image |
 
 When the sandbox file is inside a read-write workspace, burrow mounts it read-only over itself:

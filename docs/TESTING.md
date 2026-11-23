@@ -18,8 +18,14 @@ lists the checks.
   sandbox, inherit without one and with a fallback, the preset's own wider settings by default,
   strict mode refusing them, `CAP_ADD`), krun `shell` falls back to a one-shot VM, port
   forwarder on the egress network, purge of the sandbox's own cache volumes.
-- `cmd/burrow`: flags anywhere before `--`; `run`, `exec --strict`, `presets list/search/info`
-  in `--dry-run`.
+- `cmd/burrow`: flags anywhere before `--`; `run`, `exec --strict`, `presets list/search/info`,
+  `--proxy iron` (and unknown kinds refused) in `--dry-run`.
+- `internal/ironproxy` and `cmd/burrow-iron-proxy`: the rendered iron-proxy configuration (only
+  the tunnel listener reachable, DNS and management off, sni-only, deny list covering every
+  address burrow-proxy refuses, allowlist input that tries to inject JSON or globs refused), ports
+  other than 443 refused, the configuration written 0600.
+- `internal/sandbox` with `PROXY=iron`: the proxy's exact flags (tmpfs, memory, the defaults of
+  every proxy), tools next to the sandbox and without one (`--proxy`).
 - `internal/proxy`: allowlist matching (suffix tricks, IP literals, ports), private addresses
   refused after resolution, CONNECT end to end against a TLS server, plain HTTP refused.
 - `crates/burrow-forward` (`cargo test`, run by `make forward` inside the build image): flags,
@@ -29,7 +35,7 @@ lists the checks.
 
 `scripts/e2e.sh` on real rootless Podman, with the test presets (`test/presets`) and their images
 (`make test-images`). A blocked check passes only if the command ran and failed (exit 1 to 124),
-never when it could not start.
+never when it could not start (also not when the sandbox or a local image is missing).
 
 | ID | Check | Want |
 |---|---|---|
@@ -63,6 +69,16 @@ never when it could not start.
 | R3 | direct connection from it | blocked (no route) |
 | N0, N1 | from one sandbox's egress network, reach another sandbox's proxy | blocked (separate networks) |
 | N2 | the proxy is on its own egress network | works |
+| X1, X2 | `burrow up` with `PROXY=iron`; its proxy is the iron-proxy image | works |
+| X3, X4 | allowed host / another host through iron-proxy | works / blocked |
+| X5 | an IP literal through iron-proxy | blocked |
+| X6 | CONNECT to the allowed host with another host's SNI | blocked |
+| X7 | SOCKS5 to another host | blocked |
+| X8 | direct connection, ignoring the proxy | blocked (no route) |
+| X9 | iron-proxy's metrics port from the sandbox | blocked (loopback only) |
+| X10, X11 | a tool next to the sandbox (own iron-proxy, inherited allowlist): allowed / another host | works / blocked |
+| X12, X13 | a tool without a sandbox, `--proxy iron`: allowed / another host | works / blocked |
+| X14 | iron-proxy's audit log names the refused host | works |
 
 ### Results
 
@@ -71,5 +87,6 @@ never when it could not start.
 | 2026-11-18 | Ubuntu 24.04 (cloud agent session), rootless user, runc, cgroups v1 | 4.9.3 | 13/13 (with `E2E_TLS_INSECURE=1`: that network intercepts TLS) |
 | 2026-11-18 | same, after the presets redesign (0005) | 4.9.3 | 26/26 (same flag) |
 | 2026-11-20 | same, after the security model rework (0007, 0008); forwarder image built without the clippy step (no network in that build) | 4.9.3 | 38/38 (same flag) |
+| 2026-11-23 | Ubuntu 24.04 (cloud agent session), **rootful**, crun; with `PROXY=iron` (0013) | 4.9.3 | X1 to X14: 14/14 (same flag). Other checks: 11 failed for reasons outside the change (workspace permissions under rootful Podman; the forwarder image could not be built behind that network's TLS interception); to run rootless |
 | | Windows, WSL machine | | *to run* |
 | | Windows, Hyper-V machine | | *to run* |

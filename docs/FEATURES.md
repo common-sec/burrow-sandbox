@@ -38,6 +38,12 @@ reviewer** checks what burrow allows.
 | U21 | As a developer, a `run` or `up` that fails leaves nothing behind, so I can fix the cause and run it again (no "network already exists"). | `sandbox.TestUpCleansUpAfterFailure` |
 | U22 | As a developer, I run a sandbox, a tool or a shell as another user (`--user UID:GID` on `run`, `up`, `exec`, `shell`) without editing the preset; `--user 0:0` gives root (still without capabilities) with a warning, and no preset or sandbox file can ask for root. | `sandbox.TestUserFlag`, `config.TestNewSandboxUserOverride`, `config.TestRootOnlyFromTheFlag` |
 
+## The iron proxy (experimental)
+
+| # | Story | Proved by |
+|---|---|---|
+| U23 | As a developer, I choose iron-proxy as my sandbox's only exit (`PROXY=iron` or `--proxy iron`), so that I can try the proxy that will carry secrets, with the same allowlist, the same layout and the same blocks as today; tools next to my sandbox get their own iron-proxy. | X1 to X14; `ironproxy.TestRenderListenersAndModes`, `TestRenderEmptyAllowDeniesAll`, `TestRenderRejects`, `TestCheckPorts`, `TestDenyCIDRsCoverBurrowProxy`; `main.TestRunRefusesWhatIronDoesNotEnforce`, `TestRunWritesPrivateConfig` (`cmd/burrow-iron-proxy`); `sandbox.TestUpWithIronProxy`, `TestExecWithoutSandboxProxyKind`; `config.TestProxyKind`; `main.TestDryRunCommands` |
+
 ## Isolation between sandboxes
 
 | # | Story | Proved by |

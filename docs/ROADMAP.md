@@ -51,7 +51,9 @@ Legend: ✓ done · ◐ partly · ○ not started
 
 | | Item | Serves |
 |---|---|---|
-| ○ | Choose and integrate a proper proxy: TLS inspection, allowlist by host, method and path, credentials injected at the proxy (placeholders in the sandbox), OAuth tokens, audit log | R7 |
+| ◐ | Choose and integrate a proper proxy: TLS inspection, allowlist by host, method and path, credentials injected at the proxy (placeholders in the sandbox), OAuth tokens, audit log. First step: iron-proxy opt-in with `PROXY=iron` (sni-only, host allowlist, audit log; [0013](decisions/0013-iron-proxy.md)) | R7 |
+| ○ | iron-proxy: close the two exceptions of 0013 (plain HTTP on any port, `*.domain` apex), run on rootless Podman, macOS, Windows and CI, then make it the default | R7, D6 |
+| ○ | iron-proxy: TLS termination with a per-sandbox CA, and `burrow-iron-proxy load` (bindings over stdin) for secrets (0012) | R7, D4 |
 | ○ | Secrets and environment injection through the vault/proxy system: which secrets a sandbox or preset may use, how they reach the proxy, how they are rotated | R7, D4 |
 | ○ | Later, possibly: one shared proxy with container authentication and a central policy system, instead of one proxy per sandbox | R7, G5 |
 | ○ | Per-sandbox CA handed to the sandbox and presets only (certificate, never the key) | R7 |

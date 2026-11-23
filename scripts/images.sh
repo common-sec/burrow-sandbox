@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds the images burrow starts:  sh scripts/images.sh [proxy] [forward] [test] [sandboxes [NAME...]]
-#   proxy, forward  localhost/burrow-proxy:dev, localhost/burrow-forward:dev (packaging/<name>)
+# Builds the images burrow starts:  sh scripts/images.sh [proxy] [iron-proxy] [forward] [test] [sandboxes [NAME...]]
+#   proxy, iron-proxy, forward  localhost/burrow-<name>:dev (packaging/<name>)
 #   test            the small test images the e2e needs (alpine, curl, trivy)
 #   sandboxes       the sandbox images of the test presets (all, or the NAMEs given): ubuntu,
 #                   kali and the agents (claude, codex, opencode, pi, hermes); 1 to 2 GB each
@@ -11,10 +11,10 @@ set -eu
 cd "$(dirname "$0")/.."
 engine=${ENGINE:-podman}
 build_test() { "$engine" build --pull=missing -t "localhost/burrow-test-$1:dev" "test/images/$1"; }
-[ $# -gt 0 ] || set -- proxy forward
+[ $# -gt 0 ] || set -- proxy iron-proxy forward
 while [ $# -gt 0 ]; do
   case $1 in
-    proxy|forward)
+    proxy|iron-proxy|forward)
       "$engine" build --pull=missing -f "packaging/$1/Dockerfile" -t "localhost/burrow-$1:dev" . ;;
     test)
       for n in alpine curl trivy; do build_test "$n"; done ;;
@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
       [ $# -gt 0 ] || set -- ubuntu kali claude codex opencode pi hermes
       for n in "$@"; do build_test "$n"; done
       exit 0 ;;
-    *) echo "usage: $0 [proxy] [forward] [test] [sandboxes [NAME...]]" >&2; exit 2 ;;
+    *) echo "usage: $0 [proxy] [iron-proxy] [forward] [test] [sandboxes [NAME...]]" >&2; exit 2 ;;
   esac
   shift
 done

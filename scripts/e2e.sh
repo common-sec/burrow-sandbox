@@ -24,7 +24,7 @@ check() { # id want(ok|blocked) cmd...
   id=$1; want=$2; shift 2; out=$("$@" 2>&1); rc=$?
   case "$want-$rc" in
     ok-0) echo "PASS $id" ;;
-    blocked-*) if [ "$rc" -ge 1 ] && [ "$rc" -le 124 ] && ! echo "$out" | grep -qiE 'no such container|not found|executable file|improper state'; then echo "PASS $id"; else echo "FAIL $id rc=$rc: $out"; fails=$((fails+1)); fi ;;
+    blocked-*) if [ "$rc" -ge 1 ] && [ "$rc" -le 124 ] && ! echo "$out" | grep -qiE 'no such container|not found|executable file|improper state|no sandbox "|is not built'; then echo "PASS $id"; else echo "FAIL $id rc=$rc: $out"; fails=$((fails+1)); fi ;;
     *) echo "FAIL $id rc=$rc: $out"; fails=$((fails+1)) ;;
   esac
 }
@@ -38,7 +38,7 @@ PRESET=curl
 WORKSPACE=.
 ALLOW=pypi.org
 EOT
-trap '$b down e2e --purge >/dev/null 2>&1; $b down e2e-run --purge >/dev/null 2>&1; podman volume rm -f burrow-cache-exec_trivy >/dev/null 2>&1' EXIT
+trap '$b down e2e --purge >/dev/null 2>&1; $b down e2e-run --purge >/dev/null 2>&1; $b down e2e-iron --purge >/dev/null 2>&1; podman volume rm -f burrow-cache-exec_trivy >/dev/null 2>&1' EXIT
 check E1-up ok $b up -f "$ws/burrow.sandbox"
 check E2-workspace ok $b shell e2e -- cat /work/README.txt
 check E3-allowed ok $b shell e2e -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
@@ -118,5 +118,30 @@ other=$(podman inspect --format '{{(index .NetworkSettings.Networks "burrow-e2e-
 check N0-other-proxy-found ok test -n "$other"
 check N1-egress-networks-apart blocked podman run --rm --network burrow-e2e-egress --cap-drop ALL "$curlimg" -fsS --noproxy '*' -m 5 -o /dev/null "http://${other:-192.0.2.1}:3128/"
 check N2-own-proxy-on-egress ok sh -c "podman inspect --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}' burrow-e2e-proxy | grep -q 'burrow-e2e-egress'"
+# PROXY=iron (decision 0013): the same layout with iron-proxy as the only exit, for a sandbox, a
+# tool next to it (its own iron-proxy) and a tool without a sandbox (--proxy iron).
+ws3=$(mktemp -d); echo 'iron' > "$ws3/README.txt"
+cat > "$ws3/burrow.sandbox" <<EOT
+NAME=e2e-iron
+PRESET=curl
+WORKSPACE=.
+ALLOW=pypi.org
+PROXY=iron
+EOT
+check X1-iron-up ok $b up -f "$ws3/burrow.sandbox"
+check X2-iron-is-the-proxy ok sh -c "podman inspect --format '{{.ImageName}}' burrow-e2e-iron-proxy | grep -q '^localhost/burrow-iron-proxy:'"
+check X3-iron-allowed ok $b shell e2e-iron -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
+check X4-iron-other-host blocked $b shell e2e-iron -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
+check X5-iron-ip-literal blocked $b shell e2e-iron -- curl -fsS -k -m 10 -o /dev/null https://1.1.1.1/
+check X6-iron-sni-not-allowed blocked $b shell e2e-iron -- curl -fsS -k -m 10 -o /dev/null --connect-to example.com:443:pypi.org:443 https://example.com/
+check X7-iron-socks5-other-host blocked $b shell e2e-iron -- sh -c 'curl -fsS -k -m 10 -o /dev/null --socks5-hostname "${HTTPS_PROXY#http://}" https://example.com/'
+check X8-iron-direct-ip blocked $b shell e2e-iron -- curl -fsS --noproxy '*' -k -m 5 -o /dev/null https://1.1.1.1/
+ironip=$(podman inspect --format '{{(index .NetworkSettings.Networks "burrow-e2e-iron").IPAddress}}' burrow-e2e-iron-proxy 2>/dev/null)
+check X9-iron-metrics-not-reachable blocked $b shell e2e-iron -- curl -fsS --noproxy '*' -m 5 -o /dev/null "http://${ironip:-192.0.2.1}:19090/metrics"
+check X10-iron-tool-allowed ok $b exec -s e2e-iron .cache/e2e-inherit.preset -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
+check X11-iron-tool-blocks-others blocked $b exec -s e2e-iron .cache/e2e-inherit.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
+check X12-iron-standalone-tool ok $b exec --proxy iron --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
+check X13-iron-standalone-blocks-others blocked $b exec --proxy iron --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
+check X14-iron-audit-log ok sh -c "podman logs burrow-e2e-iron-proxy 2>&1 | grep '\"rejected_by\":\"allowlist\"' | grep -q example.com"
 echo "# e2e: $fails failure(s)"
 exit "$fails"

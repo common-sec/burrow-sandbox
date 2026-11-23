@@ -262,3 +262,55 @@ func TestRootOnlyFromTheFlag(t *testing.T) {
 		t.Fatal("RUN_AS=0:0 without USER_FLAG was loaded")
 	}
 }
+
+// U23: PROXY picks the proxy and its image; PROXY_IMAGE still wins; anything else is refused.
+func TestProxyKind(t *testing.T) {
+	dir := t.TempDir()
+	base := map[string]string{"NAME": "dev", "IMAGE": pinned}
+	with := func(kv ...string) map[string]string {
+		m := map[string]string{}
+		for k, v := range base {
+			m[k] = v
+		}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	e, err := NewSandbox(nil, base, dir, Overrides{})
+	if err != nil || e.Proxy != ProxyBurrow || e.ProxyImage != DefaultProxyImage {
+		t.Fatalf("default: %+v %v", e, err)
+	}
+	e, err = NewSandbox(nil, with("PROXY", "iron"), dir, Overrides{})
+	if err != nil || e.Proxy != ProxyIron || e.ProxyImage != DefaultIronProxyImage {
+		t.Fatalf("PROXY=iron: %+v %v", e, err)
+	}
+	back, err := LoadEnv(write(t, e.String()))
+	if err != nil || back.Proxy != ProxyIron || back.ProxyImage != DefaultIronProxyImage || back.String() != e.String() {
+		t.Fatalf("round trip: %+v %v", back, err)
+	}
+	e, err = NewSandbox(nil, base, dir, Overrides{Proxy: ProxyIron})
+	if err != nil || e.Proxy != ProxyIron {
+		t.Fatalf("--proxy iron: %+v %v", e, err)
+	}
+	e, err = NewSandbox(nil, with("PROXY", "iron"), dir, Overrides{Proxy: ProxyBurrow})
+	if err != nil || e.Proxy != ProxyBurrow || e.ProxyImage != DefaultProxyImage {
+		t.Fatalf("the flag wins over the file: %+v %v", e, err)
+	}
+	own := "localhost/my-iron:dev"
+	e, err = NewSandbox(nil, with("PROXY", "iron", "PROXY_IMAGE", own), dir, Overrides{})
+	if err != nil || e.ProxyImage != own {
+		t.Fatalf("PROXY_IMAGE wins: %+v %v", e, err)
+	}
+	if e, err = LoadEnv(write(t, "NAME=dev\nIMAGE="+pinned+"\nWORKSPACE_MODE=none\n")); err != nil || e.Proxy != ProxyBurrow {
+		t.Fatalf("a stored sandbox without PROXY is burrow's: %+v %v", e, err)
+	}
+	for _, v := range []string{"IRON", "iron,burrow", "envoy", "none", "-iron", "iron\nALLOW=evil.example"} {
+		if _, err := NewSandbox(nil, with("PROXY", v), dir, Overrides{}); err == nil {
+			t.Errorf("PROXY=%q: want error", v)
+		}
+	}
+	if _, err := ParsePreset(strings.NewReader("NAME=t1\nIMAGE="+pinned+"\nPROXY=iron\n"), "test"); err == nil {
+		t.Error("PROXY in a preset: want error (the user picks the proxy, not the preset)")
+	}
+}
