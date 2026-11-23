@@ -19,9 +19,12 @@
   in pinned images (`packaging/dev/Dockerfile`); mise, `mise.lock` and its installer are gone
   (decision 0010). The scanner pins moved from `compose.yaml` to
   `packaging/scanners/Dockerfile`.
-- `PROXY=iron` (sandbox file) and `--proxy iron` (`up`, `run`, `exec`): iron-proxy 0.56.0 as the
-  only exit, started by a launcher in `packaging/iron-proxy` (experimental, opt-in, with a warning;
-  decision 0013). e2e checks X1 to X14.
+- iron-proxy 0.56.0 is the default exit: `burrow-proxy` takes one set of flags and starts the
+  engine burrow asks for, `-engine iron` (default) or `-engine embedded`, from one image
+  (decision 0013). `PROXY` in the sandbox file, `--proxy iron|embedded|none` on `up` and `run`,
+  `--proxy iron|embedded` on `exec`. `none` (no proxy, direct network) needs `--accept-risk` and
+  prints a warning; tools next to such a sandbox keep their own proxy. e2e checks X1 to X5, M1 to
+  M7, O1 to O5.
 - Temporary proxy (CONNECT, host allowlist, no private addresses) and a port forwarder in Rust
   (decision 0008); a dedicated egress network per proxy.
 - Local-first checks and scans through a Makefile, CI running the same targets, daily Dependabot

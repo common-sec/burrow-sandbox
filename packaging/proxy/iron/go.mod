@@ -1,7 +1,7 @@
 // Builds iron-proxy from its released module (checked against the Go checksum database) with the
 // security fixes its 0.56.0 release lacks. Not part of burrow's module: only
-// packaging/iron-proxy/Dockerfile uses it. See decision 0013.
-module github.com/common-sec/burrow-sandbox/packaging/iron-proxy/build
+// packaging/proxy/Dockerfile uses it. See decision 0013.
+module github.com/common-sec/burrow-sandbox/packaging/proxy/iron
 
 go 1.27.3
 

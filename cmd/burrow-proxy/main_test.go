@@ -7,13 +7,18 @@ import (
 	"testing"
 )
 
-func TestRunRefusesWhatIronDoesNotEnforce(t *testing.T) {
+// Every engine refuses flags it cannot enforce, and an unknown engine is refused.
+func TestRunRefuses(t *testing.T) {
 	for _, args := range [][]string{
 		{"-print", "-ports", "22"},
 		{"-print", "-ports", "443,8443"},
 		{"-print", "-allow", "1.1.1.1"},
 		{"-print", "-allow", "pypi.org:22"},
 		{"-print", "pypi.org"}, // a stray argument is not a host
+		{"-engine", "envoy"},
+		{"-engine", "IRON", "-print"},
+		{"-engine", "embedded", "-ports", "0"},
+		{"-engine", "embedded", "-ports", "443,x"},
 	} {
 		if err := run(args); err == nil {
 			t.Errorf("%v: want error", args)
@@ -21,7 +26,7 @@ func TestRunRefusesWhatIronDoesNotEnforce(t *testing.T) {
 	}
 }
 
-// The configuration is written for the proxy's user only, then iron-proxy is started from it.
+// The iron engine writes the configuration for the proxy's user only, then starts iron-proxy from it.
 func TestRunWritesPrivateConfig(t *testing.T) {
 	dir := t.TempDir()
 	err := run([]string{"-dir", dir, "-iron", filepath.Join(dir, "missing"), "-allow", "pypi.org"})
@@ -34,5 +39,17 @@ func TestRunWritesPrivateConfig(t *testing.T) {
 	}
 	if st.Mode().Perm() != 0o600 {
 		t.Fatalf("config mode %v, want 0600", st.Mode().Perm())
+	}
+}
+
+// The default engine is iron: the same flags render iron-proxy's configuration.
+func TestDefaultEngineIsIron(t *testing.T) {
+	dir := t.TempDir()
+	if err := run([]string{"-dir", dir, "-iron", filepath.Join(dir, "missing"), "-allow", "pypi.org"}); err == nil ||
+		!strings.Contains(err.Error(), "exec") {
+		t.Fatalf("want the iron engine (exec of iron-proxy), got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "iron-proxy.json")); err != nil {
+		t.Fatal(err)
 	}
 }

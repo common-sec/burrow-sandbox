@@ -18,9 +18,10 @@ Future work still to test: nested sandboxes (Podman in Podman), and an MCP-like 
 the agent start subagents and tools under the same restrictions ([roadmap](docs/ROADMAP.md)).
 
 > **Status: prototype (0.1).** It runs, it is tested end to end on rootless Podman, and it is meant
-> for trying the design, not for protecting anything yet. The default proxy is a temporary stand-in;
-> `PROXY=iron` tries [iron-proxy](https://github.com/ironsh/iron-proxy), the proxy that will carry
-> secrets (experimental, [decision 0013](docs/decisions/0013-iron-proxy.md)). See the [roadmap](docs/ROADMAP.md).
+> for trying the design, not for protecting anything yet. The sandbox's exit is
+> [iron-proxy](https://github.com/ironsh/iron-proxy), the proxy that will carry secrets, behind
+> burrow's own proxy launcher ([decision 0013](docs/decisions/0013-iron-proxy.md)); `--proxy embedded`
+> picks burrow's small CONNECT proxy instead. See the [roadmap](docs/ROADMAP.md).
 
 ## Why
 
@@ -85,7 +86,6 @@ cp dist/burrow-linux-amd64 ./burrow       # or burrow-darwin-arm64, burrow-windo
 
 # the images burrow starts: proxy, port forwarder, and the test presets' images
 podman build -f packaging/proxy/Dockerfile -t localhost/burrow-proxy:dev .
-podman build -f packaging/iron-proxy/Dockerfile -t localhost/burrow-iron-proxy:dev .   # for PROXY=iron
 podman build -f packaging/forward/Dockerfile -t localhost/burrow-forward:dev .
 for n in alpine curl trivy; do podman build -t "localhost/burrow-test-$n:dev" "test/images/$n"; done
 # optional, 1 to 2 GB each: sandboxes with an agent or a distribution inside
@@ -102,7 +102,8 @@ export BURROW_PRESETS_DIR=$PWD/test/presets
 ./burrow exec -s dev --strict trivy -- fs /work             # strict: refused, trivy wants hosts dev does not allow
 ./burrow port dev 8080                                      # publish a port after start
 ./burrow down dev                                           # keeps the home volume; --purge removes it
-./burrow up -f examples/burrow.sandbox --proxy iron         # the same with iron-proxy as the exit (experimental)
+./burrow up -f examples/burrow.sandbox --proxy embedded     # the same with burrow's embedded proxy instead of iron-proxy
+./burrow up -f examples/burrow.sandbox --proxy none --accept-risk  # no proxy at all: direct network, with a warning
 
 # A tool on its own, on the current folder (workspace read-only):
 ./burrow exec trivy -- fs /work
@@ -126,8 +127,7 @@ Windows: [docs/WINDOWS.md](docs/WINDOWS.md).
 | Path | What |
 |---|---|
 | `cmd/burrow` | the CLI (sandbox manager) |
-| `cmd/burrow-proxy` | egress proxy, a **temporary stand-in** until a proxy solution is chosen (not to be extended except for a test or an investigation) |
-| `cmd/burrow-iron-proxy` | launcher for iron-proxy (`PROXY=iron`): renders its configuration and starts it, inside `packaging/iron-proxy` |
+| `cmd/burrow-proxy` | the sandbox's only exit, one set of flags for two engines: `iron` (default; renders iron-proxy's configuration and execs it) and `embedded` (burrow's small CONNECT proxy, `internal/proxy`, not to be extended except for a test or an investigation). Image: `packaging/proxy` |
 | `crates/burrow-forward` | port forwarder for running sandboxes (Rust, standard library only) |
 | `internal/` | shared packages: `config`, `podman`, `sandbox`, `proxy`, `ironproxy` |
 | `packaging/<product>/` | how each product is packaged (container images now; releases later) |

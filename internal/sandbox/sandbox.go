@@ -119,7 +119,11 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 		}
 		e.Workspace = abs
 	}
-	if err := m.requireImages(ctx, e.Image, e.ProxyImage); err != nil {
+	need := []string{e.Image}
+	if e.Proxy != config.ProxyNone {
+		need = append(need, e.ProxyImage)
+	}
+	if err := m.requireImages(ctx, need...); err != nil {
 		return err
 	}
 	if err := m.saveEnv(e); err != nil {
@@ -142,7 +146,13 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 }
 
 func (m *Manager) start(ctx context.Context, e *config.Env) error {
-	proxyIP, err := m.startProxy(ctx, e.Name, netName(e.Name), e.Proxy, e.ProxyImage, e.Allow)
+	var proxyIP string
+	var err error
+	if e.Proxy == config.ProxyNone {
+		err = m.openNetworks(ctx, e.Name)
+	} else {
+		proxyIP, err = m.startProxy(ctx, e.Name, netName(e.Name), e.Proxy, e.ProxyImage, e.Allow)
+	}
 	if err != nil {
 		return err
 	}
@@ -152,11 +162,25 @@ func (m *Manager) start(ctx context.Context, e *config.Env) error {
 	return err
 }
 
+// openNetworks is the layout of a sandbox with PROXY=none (only with --accept-risk): its network
+// is a normal one, with a route out and DNS, and no proxy. The egress network still exists for
+// port forwarders, so `burrow port` works the same.
+func (m *Manager) openNetworks(ctx context.Context, env string) error {
+	if _, err := m.Podman.Output(ctx, append(append([]string{"network", "create"}, envLabel(env)...), netName(env))...); err != nil {
+		return err
+	}
+	_, err := m.Podman.Output(ctx, append(append([]string{"network", "create"}, envLabel(env)...), egressName(netName(env)))...)
+	return err
+}
+
 // startProxy creates an internal network, a dedicated egress network and the proxy that joins
 // both, and returns the proxy's address on the internal one. env is the owning sandbox ("" for a
-// tool run without one). Both proxy kinds take the same arguments; iron-proxy also gets a small
-// tmpfs for the configuration its launcher renders, and more memory.
+// tool run without one). One image and one set of flags for every engine: burrow-proxy starts
+// iron-proxy (rendering its configuration into the tmpfs) or its embedded proxy (decision 0013).
 func (m *Manager) startProxy(ctx context.Context, env, net string, kind config.ProxyKind, proxyImage string, allow []string) (string, error) {
+	if err := config.CheckToolProxy(kind); err != nil {
+		return "", err
+	}
 	nargs := append(append([]string{"network", "create", "--internal", "--disable-dns"}, envLabel(env)...), net)
 	if _, err := m.Podman.Output(ctx, nargs...); err != nil {
 		return "", err
@@ -167,20 +191,14 @@ func (m *Manager) startProxy(ctx context.Context, env, net string, kind config.P
 	}
 	name := proxyName(net)
 	args := append([]string{"run", "-d", "--name", name, "--network", egressName(net)}, envLabel(env)...)
-	args = append(args, "--label", labelKind+"=proxy", "--read-only", "--user", "65532:65532")
-	switch kind {
-	case config.ProxyIron:
-		// Only the proxy's user can read the rendered configuration (it will hold secret
-		// bindings later, docs/SECRETS.md), and it lives in memory, never on disk.
-		args = append(args, "--tmpfs", "/run/burrow:rw,noexec,nosuid,nodev,size=1m,mode=0700,U",
-			"--memory", "128m", "--pids-limit", "128")
-	case config.ProxyBurrow, "":
-		args = append(args, "--memory", "64m", "--pids-limit", "64")
-	default:
-		return "", config.CheckProxy(kind)
-	}
+	// The tmpfs holds iron-proxy's rendered configuration (secret bindings later,
+	// docs/SECRETS.md): readable by the proxy's user only, in memory, never on disk.
+	args = append(args, "--label", labelKind+"=proxy", "--read-only", "--user", "65532:65532",
+		"--tmpfs", "/run/burrow:rw,noexec,nosuid,nodev,size=1m,mode=0700,U",
+		"--memory", "128m", "--pids-limit", "128")
 	args = append(args, hardening...)
-	args = append(append(args, image(proxyImage)...), "-listen", "0.0.0.0:"+proxyPort, "-allow", strings.Join(allow, ","))
+	args = append(append(args, image(proxyImage)...), "-engine", string(kind),
+		"-listen", "0.0.0.0:"+proxyPort, "-allow", strings.Join(allow, ","))
 	if _, err := m.Podman.Output(ctx, args...); err != nil {
 		return "", err
 	}
@@ -236,7 +254,9 @@ func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) []string {
 	}
 	f = append(f, hardening...)
 	f = append(f, engineFlags(e.Engine)...)
-	f = append(f, proxyEnv(proxyIP)...)
+	if proxyIP != "" { // "" with PROXY=none
+		f = append(f, proxyEnv(proxyIP)...)
+	}
 	f = append(f, envFlags(e.Env)...)
 	if e.WorkspaceMode != config.WorkspaceNone {
 		f = append(f, "-v", e.Workspace+":/work:"+string(e.WorkspaceMode), "-w", "/work")
@@ -294,9 +314,11 @@ func (m *Manager) Shell(ctx context.Context, name, user string, cmd []string) er
 	if e.Engine == config.EngineKrun {
 		// krun has no exec. Run a short-lived VM with the sandbox's exact settings: files in the
 		// workspace and home persist, processes do not.
-		ip, err := m.ipOn(ctx, proxyName(netName(e.Name)), netName(e.Name))
-		if err != nil {
-			return err
+		var ip string
+		if e.Proxy != config.ProxyNone {
+			if ip, err = m.ipOn(ctx, proxyName(netName(e.Name)), netName(e.Name)); err != nil {
+				return err
+			}
 		}
 		if user != "" {
 			e.RunAs = user
@@ -420,13 +442,13 @@ type toolRun struct {
 func (m *Manager) resolveTool(name, workspace string, p *config.Preset, o ExecOptions) (*toolRun, error) {
 	kind := o.Proxy
 	if kind == "" {
-		kind = config.ProxyBurrow
+		kind = config.ProxyIron
 	}
-	if err := config.CheckProxy(kind); err != nil {
+	if err := config.CheckToolProxy(kind); err != nil {
 		return nil, err
 	}
 	r := &toolRun{
-		proxy: kind, proxyImage: config.ProxyImageFor(kind), workspace: workspace,
+		proxy: kind, proxyImage: config.DefaultProxyImage, workspace: workspace,
 		wsMode: p.WorkspaceMode, network: p.Network, allow: p.Allow,
 	}
 	var e *config.Env
@@ -438,7 +460,10 @@ func (m *Manager) resolveTool(name, workspace string, p *config.Preset, o ExecOp
 		if e, err = m.loadEnv(name); err != nil {
 			return nil, err
 		}
-		r.env, r.proxy, r.proxyImage = e.Name, e.Proxy, e.ProxyImage
+		r.env, r.proxyImage = e.Name, e.ProxyImage
+		if e.Proxy != config.ProxyNone {
+			r.proxy = e.Proxy // next to a sandbox without a proxy, a tool still gets iron
+		}
 		o.Strict = o.Strict || e.Strict
 		if e.WorkspaceMode != config.WorkspaceNone {
 			r.workspace = e.Workspace

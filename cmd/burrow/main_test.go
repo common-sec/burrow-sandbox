@@ -30,8 +30,9 @@ func TestDryRunCommands(t *testing.T) {
 	t.Chdir(t.TempDir())
 	for _, args := range [][]string{
 		{"--dry-run", "run", "alpine", "--name", "t1"},
-		{"--dry-run", "run", "alpine", "--name", "t2", "--proxy", "iron"},
-		{"--dry-run", "exec", "--proxy", "iron", "--workspace", ".", "trivy-db"},
+		{"--dry-run", "run", "alpine", "--name", "t2", "--proxy", "embedded"},
+		{"--dry-run", "run", "alpine", "--name", "t4", "--proxy", "none", "--accept-risk"},
+		{"--dry-run", "exec", "--proxy", "embedded", "--workspace", ".", "trivy-db"},
 		{"--dry-run", "exec", "--workspace", ".", "trivy-scan"},
 		{"--dry-run", "exec", "--strict", "--workspace", ".", "trivy"},
 		{"--dry-run", "presets", "info", "trivy"},
@@ -47,6 +48,8 @@ func TestDryRunCommands(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"--dry-run", "run", "alpine", "--name", "t3", "--proxy", "envoy"},
+		{"--dry-run", "run", "alpine", "--name", "t5", "--proxy", "none"},
+		{"--dry-run", "exec", "--proxy", "none", "--workspace", ".", "trivy-db"},
 		{"--dry-run", "exec", "--proxy", "IRON", "--workspace", ".", "trivy-db"},
 	} {
 		if err := run(args); err == nil {

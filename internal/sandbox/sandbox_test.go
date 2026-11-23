@@ -485,20 +485,18 @@ func TestUserFlag(t *testing.T) {
 	}
 }
 
-// ironFlags are what an iron-proxy container must have, besides the defaults on every proxy.
-var ironFlags = [][]string{
-	{"--tmpfs", "/run/burrow:rw,noexec,nosuid,nodev,size=1m,mode=0700,U"},
-	{"--memory", "128m"},
-	{"--pids-limit", "128"},
-}
-
-// proxyDefaults are on every proxy, whatever its kind.
+// proxyDefaults are on every proxy container, whatever its engine.
 var proxyDefaults = [][]string{
 	{"--read-only"},
 	{"--user", "65532:65532"},
 	{"--cap-drop", "ALL"},
 	{"--security-opt", "no-new-privileges"},
 	{"--http-proxy=false"},
+	{"--tmpfs", "/run/burrow:rw,noexec,nosuid,nodev,size=1m,mode=0700,U"},
+	{"--memory", "128m"},
+	{"--pids-limit", "128"},
+	{"--pull=never", config.DefaultProxyImage},
+	{"-listen", "0.0.0.0:3128"},
 }
 
 func checkFlags(t *testing.T, what string, args []string, want ...[]string) {
@@ -510,38 +508,80 @@ func checkFlags(t *testing.T, what string, args []string, want ...[]string) {
 	}
 }
 
-// U23: PROXY=iron starts iron-proxy as the sandbox's only exit, with the same layout and flags as
-// burrow-proxy (same arguments, internal network, own egress network), plus its tmpfs.
-func TestUpWithIronProxy(t *testing.T) {
+func upWith(t *testing.T, kind config.ProxyKind) (*Manager, *podman.Recorder) {
+	t.Helper()
 	rec := &podman.Recorder{Replies: map[string]string{"inspect": "10.89.0.2"}}
 	m := &Manager{Podman: rec, StateDir: t.TempDir()}
 	e := &config.Env{
 		Name: "dev", Image: pinned, Workspace: t.TempDir(), WorkspaceMode: config.WorkspaceRW,
 		Allow: []string{"pypi.org"}, Engine: config.EngineCrun, RunAs: "1000:1000",
-		Proxy: config.ProxyIron, ProxyImage: config.DefaultIronProxyImage, ForwardImage: config.DefaultForwardImage,
+		Proxy: kind, ProxyImage: config.DefaultProxyImage, ForwardImage: config.DefaultForwardImage,
 	}
 	if err := m.Up(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-	px := find(rec, "run", "-d", "--name", "burrow-dev-proxy")
-	checkFlags(t, "iron proxy", px, append(append([][]string{
-		{"--network", "burrow-dev-egress"},
-		{"--pull=never", config.DefaultIronProxyImage},
-		{"-listen", "0.0.0.0:3128"},
-		{"-allow", "pypi.org"},
-	}, proxyDefaults...), ironFlags...)...)
-	if has(px, "--memory", "64m") || slices.Contains(px, "--privileged") || slices.Contains(px, "-allow-private") {
-		t.Errorf("iron proxy: %v", px)
+	return m, rec
+}
+
+// U23: one proxy image and one set of flags; PROXY picks the engine (iron by default). A tool next
+// to the sandbox gets the same engine, its own instance, never the sandbox's network.
+func TestUpProxyEngines(t *testing.T) {
+	for _, kind := range []config.ProxyKind{"", config.ProxyIron, config.ProxyEmbedded} {
+		want := kind
+		if want == "" {
+			want = config.ProxyIron
+		}
+		m, rec := upWith(t, kind)
+		px := find(rec, "run", "-d", "--name", "burrow-dev-proxy")
+		checkFlags(t, string(want), px, append([][]string{
+			{"--network", "burrow-dev-egress"}, {"-engine", string(want)}, {"-allow", "pypi.org"},
+		}, proxyDefaults...)...)
+		if slices.Contains(px, "--privileged") || slices.Contains(px, "-allow-private") {
+			t.Errorf("%s proxy: %v", want, px)
+		}
+		if find(rec, "network", "connect", "burrow-dev", "burrow-dev-proxy") == nil {
+			t.Fatalf("%s: proxy not connected to the internal network", want)
+		}
+		sb := find(rec, "run", "-d", "--name", "burrow-dev")
+		checkFlags(t, "sandbox", sb, []string{"--network", "burrow-dev"}, []string{"-e", "HTTPS_PROXY=http://10.89.0.2:3128"})
+		p := &config.Preset{
+			Name: "db", Image: pinned, WorkspaceMode: config.WorkspaceNone, Network: config.NetworkInherit,
+			Engine: config.EngineCrun, RunAs: "65532:65532",
+		}
+		n := len(rec.Calls)
+		if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		tp := with(rec.Calls[n:], "-allow")
+		checkFlags(t, "tool proxy", tp, append([][]string{{"-engine", string(want)}, {"-allow", "pypi.org"}}, proxyDefaults...)...)
+		if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{Proxy: config.ProxyEmbedded}); err == nil {
+			t.Error("--proxy next to a sandbox: want error (the tool gets its sandbox's engine)")
+		}
 	}
-	if find(rec, "network", "connect", "burrow-dev", "burrow-dev-proxy") == nil {
-		t.Fatal("iron proxy not connected to the internal network")
+}
+
+// U24: PROXY=none (accepted with --accept-risk in config.NewSandbox): a normal network, no proxy,
+// no proxy variables. A tool next to it still gets its own proxy (iron).
+func TestUpWithoutProxy(t *testing.T) {
+	m, rec := upWith(t, config.ProxyNone)
+	if c := find(rec, "run", "-d", "--name", "burrow-dev-proxy"); c != nil {
+		t.Fatalf("a proxy was started: %v", c)
 	}
-	if find(rec, "image", "exists", config.DefaultIronProxyImage) == nil {
-		t.Fatal("the iron-proxy image is not checked before start")
+	if find(rec, "image", "exists", config.DefaultProxyImage) != nil {
+		t.Error("the proxy image is not needed")
+	}
+	net := find(rec, "network", "create")
+	if has(net, "--internal") || has(net, "--disable-dns") || net[len(net)-1] != "burrow-dev" {
+		t.Fatalf("network: %v", net)
+	}
+	if with(rec.Calls, "network", "create", "--label", "burrow.env=dev", "burrow-dev-egress") == nil {
+		t.Error("no egress network for port forwarders")
 	}
 	sb := find(rec, "run", "-d", "--name", "burrow-dev")
-	checkFlags(t, "sandbox", sb, []string{"--network", "burrow-dev"}, []string{"-e", "HTTPS_PROXY=http://10.89.0.2:3128"})
-	// A tool next to the sandbox gets its own iron-proxy, never the sandbox's network.
+	if slices.ContainsFunc(sb, func(a string) bool { return strings.Contains(strings.ToLower(a), "_proxy=") }) {
+		t.Errorf("proxy variables without a proxy: %v", sb)
+	}
+	checkFlags(t, "sandbox", sb, []string{"--network", "burrow-dev"}, []string{"--cap-drop", "ALL"})
 	p := &config.Preset{
 		Name: "db", Image: pinned, WorkspaceMode: config.WorkspaceNone, Network: config.NetworkInherit,
 		Engine: config.EngineCrun, RunAs: "65532:65532",
@@ -551,26 +591,24 @@ func TestUpWithIronProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	tp := with(rec.Calls[n:], "-allow")
-	checkFlags(t, "tool proxy", tp, append(append([][]string{
-		{"--pull=never", config.DefaultIronProxyImage}, {"-allow", "pypi.org"},
-	}, proxyDefaults...), ironFlags...)...)
-	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{Proxy: config.ProxyBurrow}); err == nil {
-		t.Error("--proxy next to a sandbox: want error (the tool gets its sandbox's kind)")
+	checkFlags(t, "tool proxy", tp, append([][]string{{"-engine", "iron"}}, proxyDefaults...)...)
+	if run := with(rec.Calls[n:], "--label", "burrow.kind=tool"); run == nil || has(run, "--network", "burrow-dev") {
+		t.Errorf("the tool must run on its own network, not the sandbox's open one: %v", run)
 	}
 }
 
-// U23: a tool without a sandbox picks the proxy with --proxy; burrow-proxy by default.
+// U23: a tool without a sandbox picks the engine with --proxy (iron by default); none is refused.
 func TestExecWithoutSandboxProxyKind(t *testing.T) {
 	for _, c := range []struct {
-		kind  config.ProxyKind
-		image string
-		ok    bool
+		kind, want config.ProxyKind
+		ok         bool
 	}{
-		{"", config.DefaultProxyImage, true},
-		{config.ProxyBurrow, config.DefaultProxyImage, true},
-		{config.ProxyIron, config.DefaultIronProxyImage, true},
+		{"", config.ProxyIron, true},
+		{config.ProxyIron, config.ProxyIron, true},
+		{config.ProxyEmbedded, config.ProxyEmbedded, true},
+		{config.ProxyNone, "", false},
 		{"envoy", "", false},
-		{"iron,burrow", "", false},
+		{"iron,embedded", "", false},
 	} {
 		rec := &podman.Recorder{Replies: map[string]string{"inspect": "10.89.0.2"}}
 		m := &Manager{Podman: rec, StateDir: t.TempDir()}
@@ -589,12 +627,7 @@ func TestExecWithoutSandboxProxyKind(t *testing.T) {
 			}
 			continue
 		}
-		px := with(rec.Calls, "-allow")
-		checkFlags(t, string(c.kind), px, append(proxyDefaults, []string{"--pull=never", c.image}, []string{"-allow", "ghcr.io"})...)
-		if c.kind == config.ProxyIron {
-			checkFlags(t, "iron", px, ironFlags...)
-		} else if slices.Contains(px, "--tmpfs") {
-			t.Errorf("burrow-proxy needs no tmpfs: %v", px)
-		}
+		checkFlags(t, string(c.kind), with(rec.Calls, "-allow"),
+			append([][]string{{"-engine", string(c.want)}, {"-allow", "ghcr.io"}}, proxyDefaults...)...)
 	}
 }

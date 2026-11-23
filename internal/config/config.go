@@ -57,17 +57,20 @@ const (
 	NetworkInherit NetworkMode = "inherit"
 )
 
-// ProxyKind is the proxy a sandbox (and the tools next to it) gets as its only exit.
+// ProxyKind is the engine of the proxy a sandbox (and the tools next to it) gets as its only
+// exit. Both engines run in the same burrow-proxy container, with the same flags (decision 0013).
 type ProxyKind string
 
 // Proxies.
 const (
-	// ProxyBurrow is burrow-proxy (internal/proxy): CONNECT to allowed hosts on allowed ports.
-	// The default until iron-proxy has passed on every platform (decision 0013).
-	ProxyBurrow ProxyKind = "burrow"
-	// ProxyIron is iron-proxy (github.com/ironsh/iron-proxy) behind burrow's launcher
-	// (cmd/burrow-iron-proxy): experimental, opt-in (decision 0013).
+	// ProxyIron is iron-proxy (github.com/ironsh/iron-proxy): the default.
 	ProxyIron ProxyKind = "iron"
+	// ProxyEmbedded is burrow's own small CONNECT proxy (internal/proxy).
+	ProxyEmbedded ProxyKind = "embedded"
+	// ProxyNone (sandboxes only) disables the proxy: the sandbox gets a normal network with a
+	// route out and DNS, and nothing filters it. Only with --accept-risk, with a warning
+	// (decision 0011). Tools next to such a sandbox still get their own proxy.
+	ProxyNone ProxyKind = "none"
 )
 
 // ToolCaps are the capabilities a tool preset may ask for with CAP_ADD: at most Podman's own
@@ -89,7 +92,7 @@ type Env struct {
 	RunAs         string // uid:gid inside the sandbox; the host user is mapped to it (keep-id)
 	UserFlag      bool   // RunAs came from --user (may be root), not from a preset or file
 	Proxy         ProxyKind
-	ProxyImage    string // the image of Proxy, unless PROXY_IMAGE names another
+	ProxyImage    string // runs either engine
 	ForwardImage  string
 	Memory        string   // podman --memory, optional
 	Env           []string // KEY=VALUE, not secret
@@ -215,27 +218,26 @@ func keys(k ...string) map[string]bool {
 
 // Defaults for images built locally by `make images`.
 const (
-	DefaultProxyImage     = "localhost/burrow-proxy:dev"
-	DefaultIronProxyImage = "localhost/burrow-iron-proxy:dev"
-	DefaultForwardImage   = "localhost/burrow-forward:dev"
+	DefaultProxyImage   = "localhost/burrow-proxy:dev"
+	DefaultForwardImage = "localhost/burrow-forward:dev"
 )
 
-// ProxyImageFor is the image of a proxy kind (an unknown kind gets burrow-proxy's image; Validate
-// refuses the kind itself).
-func ProxyImageFor(k ProxyKind) string {
-	if k == ProxyIron {
-		return DefaultIronProxyImage
-	}
-	return DefaultProxyImage
-}
-
-// CheckProxy accepts the known proxy kinds.
+// CheckProxy accepts the proxy kinds of a sandbox: iron, embedded or none.
 func CheckProxy(k ProxyKind) error {
 	switch k {
-	case ProxyBurrow, ProxyIron:
+	case ProxyIron, ProxyEmbedded, ProxyNone:
 		return nil
 	}
-	return fmt.Errorf("PROXY %q: burrow or iron", k)
+	return fmt.Errorf("PROXY %q: iron, embedded or none", k)
+}
+
+// CheckToolProxy accepts the proxy kinds of a tool: a tool with NETWORK=proxy always has one.
+func CheckToolProxy(k ProxyKind) error {
+	switch k {
+	case ProxyIron, ProxyEmbedded:
+		return nil
+	}
+	return fmt.Errorf("--proxy %q: iron or embedded (a tool with a network always has a proxy)", k)
 }
 
 // LoadEnv reads and validates a stored sandbox (written by burrow).
@@ -252,13 +254,13 @@ func LoadEnv(path string) (*Env, error) {
 		Allow:         list(m["ALLOW"]),
 		Engine:        Engine(def(m["ENGINE"], string(EngineCrun))),
 		RunAs:         def(m["RUN_AS"], "1000:1000"),
-		Proxy:         ProxyKind(def(m["PROXY"], string(ProxyBurrow))),
+		Proxy:         ProxyKind(def(m["PROXY"], string(ProxyIron))),
+		ProxyImage:    def(m["PROXY_IMAGE"], DefaultProxyImage),
 		ForwardImage:  def(m["FORWARD_IMAGE"], DefaultForwardImage),
 		Memory:        m["MEMORY"],
 		Env:           commaList(m["ENV"]),
 		Definition:    m["DEFINITION"],
 	}
-	e.ProxyImage = def(m["PROXY_IMAGE"], ProxyImageFor(e.Proxy))
 	var err2 error
 	e.Strict, err2 = parseBool("STRICT", m["STRICT"])
 	if err2 != nil {
@@ -282,6 +284,9 @@ type Overrides struct {
 	Workspace string // absolute
 	RunAs     string // --user: uid:gid; unlike RUN_AS it may be root (exception in decision 0011)
 	Proxy     ProxyKind
+	// AcceptRisk (--accept-risk) is the user's explicit yes to a setting that removes a
+	// protection: PROXY=none. A sandbox file cannot give it.
+	AcceptRisk bool
 }
 
 // NewSandbox resolves a sandbox from a preset (may be nil), a sandbox file's keys (may be nil;
@@ -322,18 +327,22 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 		Allow:         list(m["ALLOW"]),
 		Engine:        Engine(def(m["ENGINE"], string(EngineCrun))),
 		RunAs:         def(m["RUN_AS"], "1000:1000"),
-		Proxy:         ProxyKind(def(m["PROXY"], string(ProxyBurrow))),
+		Proxy:         ProxyKind(def(m["PROXY"], string(ProxyIron))),
+		ProxyImage:    def(m["PROXY_IMAGE"], DefaultProxyImage),
 		ForwardImage:  def(m["FORWARD_IMAGE"], DefaultForwardImage),
 		Memory:        m["MEMORY"],
 		Env:           commaList(m["ENV"]),
 	}
-	e.ProxyImage = def(m["PROXY_IMAGE"], ProxyImageFor(e.Proxy))
 	var err error
 	if e.Strict, err = parseBool("STRICT", m["STRICT"]); err != nil {
 		return nil, err
 	}
 	if o.RunAs != "" {
 		e.RunAs, e.UserFlag = o.RunAs, true
+	}
+	if e.Proxy == ProxyNone && !o.AcceptRisk {
+		return nil, errors.New("PROXY=none removes the proxy: the sandbox can reach any host directly. " +
+			"Add --accept-risk to start it anyway")
 	}
 	if e.WorkspaceMode != WorkspaceNone {
 		ws := def(m["WORKSPACE"], ".")
@@ -348,7 +357,7 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 // Validate checks every field; it is also run on definitions stored by `burrow up`.
 func (e *Env) Validate() error {
 	if e.Proxy == "" {
-		e.Proxy = ProxyBurrow // definitions stored before PROXY existed
+		e.Proxy = ProxyIron // the default
 	}
 	var errs []error
 	if !nameRe.MatchString(e.Name) {

@@ -15,11 +15,11 @@ version: 2
 
 updates:
   # Go modules (go.sum): burrow's own, and the module that builds iron-proxy with its fixes
-  # (packaging/iron-proxy/build, decision 0013).
+  # (packaging/proxy/iron, decision 0013).
   - package-ecosystem: gomod
     directories:
       - /
-      - /packaging/iron-proxy/build
+      - /packaging/proxy/iron
     schedule:
       interval: daily
     cooldown:
@@ -59,7 +59,6 @@ updates:
   - package-ecosystem: docker
     directories:
       - /packaging/proxy
-      - /packaging/iron-proxy
       - /packaging/dev
       - /packaging/burrow
       - /packaging/forward

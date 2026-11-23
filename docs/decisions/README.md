@@ -17,5 +17,5 @@ this folder holds burrow's own.
 | [0009](0009-agent-sandboxes.md) | Sandbox presets for agents (claude, codex, opencode, pi, hermes) and distributions (ubuntu, kali), from pinned images and lockfiles with hashes | proposed |
 | [0008](0008-rust-forwarder.md) | The port forwarder in Rust, standard library only (exception to org DR-0006, owner J) | proposed |
 | [0011](0011-secure-defaults-user-overrides.md) | Secure by default, tunable by the user with warnings; root allowed only from `--user` (exception, owner J) | proposed |
-| [0013](0013-iron-proxy.md) | iron-proxy as an opt-in proxy (`PROXY=iron`): a launcher renders its configuration into a tmpfs; sni-only; two exceptions (owner J) | proposed |
+| [0013](0013-iron-proxy.md) | iron-proxy as the default engine of one proxy (`-engine iron|embedded`, `PROXY=none` only with `--accept-risk`); configuration rendered into a tmpfs; sni-only; four exceptions (owner J) | proposed |
 | [0010](0010-dev-tools-in-containers.md) | Developer checks in pinned containers (`packaging/dev/Dockerfile`); mise removed; supersedes the mise parts of 0006 | proposed |

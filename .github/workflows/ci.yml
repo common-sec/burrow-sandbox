@@ -41,7 +41,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0   # full history, so the secrets scan sees every commit
-      # `images` builds the proxy images and the forwarder first, then scans them for
+      # `images` builds the proxy and forwarder images first, then scans them for
       # vulnerabilities and secrets.
       - name: ${{ matrix.scan }} (rootless podman, same target as `make scan`)
         run: make scan-${{ matrix.scan }}

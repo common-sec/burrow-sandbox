@@ -1,8 +1,8 @@
 // Package ironproxy renders the configuration of iron-proxy (github.com/ironsh/iron-proxy, Apache-2.0)
-// for one sandbox or tool run (decision 0013). It is the burrow side of `PROXY=iron`: the launcher
-// in the proxy image (cmd/burrow-iron-proxy) calls Render and starts iron-proxy with the result.
+// for one sandbox or tool run (decision 0013). burrow-proxy's iron engine (the default,
+// cmd/burrow-proxy -engine iron) calls Render and starts iron-proxy with the result.
 //
-// The rendered configuration keeps the guarantees of burrow-proxy (internal/proxy) and adds
+// The rendered configuration keeps the guarantees of the embedded engine (internal/proxy) and adds
 // iron-proxy's pipeline:
 //   - the only listener the sandbox can reach is the tunnel listener (HTTP CONNECT and SOCKS5);
 //     iron-proxy's transparent HTTP and HTTPS listeners, metrics and management stay on loopback
@@ -28,7 +28,7 @@ import (
 	"strings"
 )
 
-// Options are what burrow passes to the proxy container (the same flags as burrow-proxy).
+// Options are what burrow passes to the proxy container (burrow-proxy's flags, for every engine).
 type Options struct {
 	Listen       string   // tunnel listener inside the proxy container, e.g. 0.0.0.0:3128
 	Allow        []string // exact host names or *.domain, as validated by internal/config
@@ -36,7 +36,7 @@ type Options struct {
 }
 
 // DenyCIDRs are the addresses the proxy never dials: everything that is not public unicast. The
-// same rule as burrow-proxy's Policy.AddrAllowed, written as CIDRs for iron-proxy, which checks
+// same rule as the embedded engine's Policy.AddrAllowed, written as CIDRs for iron-proxy, which checks
 // them after resolution, on every dial (iron-proxy unmaps IPv4-mapped IPv6 addresses first).
 var DenyCIDRs = []string{
 	"0.0.0.0/8",       // "this network"

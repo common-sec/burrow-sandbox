@@ -77,7 +77,7 @@ sandboxes() {
 images() {
   echo "== images (trivy: vulnerabilities and secrets in every image we build)"
   mkdir -p .cache/images
-  for img in localhost/burrow-proxy:dev localhost/burrow-iron-proxy:dev localhost/burrow-forward:dev; do scan_image "$img" 1; done
+  for img in localhost/burrow-proxy:dev localhost/burrow-forward:dev; do scan_image "$img" 1; done
 }
 what=${1:-all}; [ $# -gt 0 ] && shift
 case $what in

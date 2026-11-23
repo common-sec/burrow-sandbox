@@ -38,7 +38,7 @@ PRESET=curl
 WORKSPACE=.
 ALLOW=pypi.org
 EOT
-trap '$b down e2e --purge >/dev/null 2>&1; $b down e2e-run --purge >/dev/null 2>&1; $b down e2e-iron --purge >/dev/null 2>&1; podman volume rm -f burrow-cache-exec_trivy >/dev/null 2>&1' EXIT
+trap '$b down e2e --purge >/dev/null 2>&1; $b down e2e-run --purge >/dev/null 2>&1; $b down e2e-emb --purge >/dev/null 2>&1; $b down e2e-none --purge >/dev/null 2>&1; podman volume rm -f burrow-cache-exec_trivy >/dev/null 2>&1' EXIT
 check E1-up ok $b up -f "$ws/burrow.sandbox"
 check E2-workspace ok $b shell e2e -- cat /work/README.txt
 check E3-allowed ok $b shell e2e -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
@@ -118,30 +118,42 @@ other=$(podman inspect --format '{{(index .NetworkSettings.Networks "burrow-e2e-
 check N0-other-proxy-found ok test -n "$other"
 check N1-egress-networks-apart blocked podman run --rm --network burrow-e2e-egress --cap-drop ALL "$curlimg" -fsS --noproxy '*' -m 5 -o /dev/null "http://${other:-192.0.2.1}:3128/"
 check N2-own-proxy-on-egress ok sh -c "podman inspect --format '{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}' burrow-e2e-proxy | grep -q 'burrow-e2e-egress'"
-# PROXY=iron (decision 0013): the same layout with iron-proxy as the only exit, for a sandbox, a
-# tool next to it (its own iron-proxy) and a tool without a sandbox (--proxy iron).
-ws3=$(mktemp -d); echo 'iron' > "$ws3/README.txt"
+# The default engine is iron (decision 0013): everything above ran through iron-proxy. What only
+# iron-proxy does, on the same sandbox:
+check X1-iron-is-the-default-engine ok sh -c "podman inspect --format '{{.Args}}' burrow-e2e-proxy | grep -q -- '-engine iron'"
+check X2-iron-sni-not-allowed blocked $b shell e2e -- curl -fsS -k -m 10 -o /dev/null --connect-to example.com:443:pypi.org:443 https://example.com/
+check X3-iron-socks5-other-host blocked $b shell e2e -- sh -c 'curl -fsS -k -m 10 -o /dev/null --socks5-hostname "${HTTPS_PROXY#http://}" https://example.com/'
+proxyip=$(podman inspect --format '{{(index .NetworkSettings.Networks "burrow-e2e").IPAddress}}' burrow-e2e-proxy 2>/dev/null)
+check X4-iron-metrics-not-reachable blocked $b shell e2e -- curl -fsS --noproxy '*' -m 5 -o /dev/null "http://${proxyip:-192.0.2.1}:19090/metrics"
+check X5-iron-audit-log ok sh -c "podman logs burrow-e2e-proxy 2>&1 | grep '\"rejected_by\":\"allowlist\"' | grep -q example.com"
+# PROXY=embedded: burrow's own CONNECT proxy, the same image and flags.
+ws3=$(mktemp -d); echo 'embedded' > "$ws3/README.txt"
 cat > "$ws3/burrow.sandbox" <<EOT
-NAME=e2e-iron
+NAME=e2e-emb
 PRESET=curl
 WORKSPACE=.
 ALLOW=pypi.org
-PROXY=iron
+PROXY=embedded
 EOT
-check X1-iron-up ok $b up -f "$ws3/burrow.sandbox"
-check X2-iron-is-the-proxy ok sh -c "podman inspect --format '{{.ImageName}}' burrow-e2e-iron-proxy | grep -q '^localhost/burrow-iron-proxy:'"
-check X3-iron-allowed ok $b shell e2e-iron -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
-check X4-iron-other-host blocked $b shell e2e-iron -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
-check X5-iron-ip-literal blocked $b shell e2e-iron -- curl -fsS -k -m 10 -o /dev/null https://1.1.1.1/
-check X6-iron-sni-not-allowed blocked $b shell e2e-iron -- curl -fsS -k -m 10 -o /dev/null --connect-to example.com:443:pypi.org:443 https://example.com/
-check X7-iron-socks5-other-host blocked $b shell e2e-iron -- sh -c 'curl -fsS -k -m 10 -o /dev/null --socks5-hostname "${HTTPS_PROXY#http://}" https://example.com/'
-check X8-iron-direct-ip blocked $b shell e2e-iron -- curl -fsS --noproxy '*' -k -m 5 -o /dev/null https://1.1.1.1/
-ironip=$(podman inspect --format '{{(index .NetworkSettings.Networks "burrow-e2e-iron").IPAddress}}' burrow-e2e-iron-proxy 2>/dev/null)
-check X9-iron-metrics-not-reachable blocked $b shell e2e-iron -- curl -fsS --noproxy '*' -m 5 -o /dev/null "http://${ironip:-192.0.2.1}:19090/metrics"
-check X10-iron-tool-allowed ok $b exec -s e2e-iron .cache/e2e-inherit.preset -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
-check X11-iron-tool-blocks-others blocked $b exec -s e2e-iron .cache/e2e-inherit.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
-check X12-iron-standalone-tool ok $b exec --proxy iron --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
-check X13-iron-standalone-blocks-others blocked $b exec --proxy iron --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
-check X14-iron-audit-log ok sh -c "podman logs burrow-e2e-iron-proxy 2>&1 | grep '\"rejected_by\":\"allowlist\"' | grep -q example.com"
+check M1-embedded-up ok $b up -f "$ws3/burrow.sandbox"
+check M2-embedded-is-the-engine ok sh -c "podman inspect --format '{{.Args}}' burrow-e2e-emb-proxy | grep -q -- '-engine embedded'"
+check M3-embedded-allowed ok $b shell e2e-emb -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
+check M4-embedded-other-host blocked $b shell e2e-emb -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
+check M5-embedded-plain-http blocked $b shell e2e-emb -- curl -fsS -m 10 -o /dev/null -x "http://$(podman inspect --format '{{(index .NetworkSettings.Networks "burrow-e2e-emb").IPAddress}}' burrow-e2e-emb-proxy):3128" http://pypi.org/
+check M6-embedded-tool-blocks-others blocked $b exec -s e2e-emb .cache/e2e-inherit.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
+check M7-embedded-standalone-tool ok $b exec --proxy embedded --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
+# PROXY=none: refused without --accept-risk; with it, a direct route out and no proxy; a tool
+# next to it still has its own (iron) proxy.
+cat > "$ws3/none.sandbox" <<EOT
+NAME=e2e-none
+PRESET=curl
+WORKSPACE=.
+PROXY=none
+EOT
+check O1-none-needs-accept-risk blocked $b up -f "$ws3/none.sandbox"
+check O2-none-up ok $b up -f "$ws3/none.sandbox" --accept-risk
+check O3-none-has-no-proxy blocked podman container exists burrow-e2e-none-proxy
+check O4-none-direct-route ok $b shell e2e-none -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
+check O5-none-tool-keeps-proxy blocked $b exec -s e2e-none .cache/e2e-wider.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
 echo "# e2e: $fails failure(s)"
 exit "$fails"
