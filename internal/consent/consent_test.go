@@ -30,7 +30,7 @@ var (
 	fromFlag   = Weakening{Name: Root, From: "--user", Explicit: true}
 )
 
-// U23: a weakening from a file is confirmed by a person, by a named flag, or refused. Each row
+// U24: a weakening from a file is confirmed by a person, by a named flag, or refused. Each row
 // is one way to get it through; only the person's answer or the flag may.
 func TestCheck(t *testing.T) {
 	for _, c := range []struct {

@@ -106,6 +106,26 @@ check S3-standalone-inherit-no-network blocked $b exec --workspace "$ws2" .cache
 check S4-fallback-rw ok $b exec --workspace "$ws2" .cache/e2e-fallback.preset -- sh -c 'echo x > /work/fallback.txt'
 check S5-fallback-proxy-allowed ok $b exec --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
 check S6-fallback-proxy-blocks-others blocked $b exec --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
+# Workspace path and mounts (decision 0012): a tool reads the workspace at its own WORKDIR, writes
+# only its work: output folder and builds in a tmpfs; a preset cannot mount a host folder.
+mkdir -p "$ws2/dist"
+cat > .cache/e2e-build.preset <<EOT
+NAME=build
+IMAGE=$alpine
+WORKDIR=/src
+MOUNT=work:dist:/out:rw,tmpfs:/build:64m
+ARGS=sh -c
+EOT
+cat > .cache/e2e-hostmount.preset <<EOT
+NAME=hostmount
+IMAGE=$alpine
+MOUNT=host:$HOME:/h:ro
+EOT
+check M1-workdir-and-mounts ok $b exec --workspace "$ws2" .cache/e2e-build.preset -- 'cat /src/README.txt && echo x > /out/built && echo y > /build/tmp'
+check M2-output-reached-host ok test -f "$ws2/dist/built"
+check M3-rest-of-workspace-read-only blocked $b exec --workspace "$ws2" .cache/e2e-build.preset -- 'echo x > /src/x'
+check M4-preset-cannot-mount-host blocked $b exec --workspace "$ws2" .cache/e2e-hostmount.preset -- true
+check M5-no-socket-folder blocked $b exec --workspace "$ws2" --mount "host:${XDG_RUNTIME_DIR:-/run}:/s:ro" .cache/e2e-read.preset
 # Root asked for by a preset (decision 0013): refused when nobody can confirm it, accepted only
 # by a flag that names it. setsid leaves the controlling terminal behind, like an agent or a script.
 cat > .cache/e2e-root.preset <<EOT

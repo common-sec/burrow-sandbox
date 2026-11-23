@@ -19,7 +19,7 @@ Legend: ✓ done · ◐ partly · ○ not started
 | ✓ | `inherit` with a fallback for when there is no sandbox (`inherit:rw`, `inherit:proxy`); without one, `ro` and `none` | W2 |
 | ✓ | Strict mode (`--strict`, `STRICT=true`): tools capped by their sandbox | SB7 |
 | ◐ | Rework of inheritance: which settings a tool can inherit beyond workspace and proxy (caches, extra mounts, memory, environment), each with a default for when there is no sandbox | W2 |
-| ○ | Extra volumes and mounts in presets and sandbox files (beyond the workspace and caches), workspace path and flags ([0012](decisions/0012-workdir-and-mounts.md), proposed) | W2 |
+| ✓ | Extra mounts in presets and sandbox files (`MOUNT`: tmpfs, volume, workspace subfolder; host folder from the sandbox file or `--mount` only), `WORKDIR`, flags `--workdir`, `--workspace-mode`, `--mount` ([0012](decisions/0012-workdir-and-mounts.md)) | W2 |
 | ○ | Secrets and environment injection: plain `ENV` today; secrets only through the vault/proxy system (placeholders in the sandbox, real values added by the proxy), never as variables | R7, D4 |
 | ✓ | `burrow port`: publish a port of a running sandbox through a forwarder container (Rust, standard library only, [0008](decisions/0008-rust-forwarder.md)) | R9 |
 | ✓ | A dedicated egress network per proxy: proxies and forwarders of different sandboxes cannot reach each other | SB3 |

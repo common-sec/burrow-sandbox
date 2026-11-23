@@ -1,6 +1,6 @@
 # 0012: Workspace path, extra mounts, and flags that override them
 
-**Status:** proposed (2026-11-23); one open question (who may mount a host folder, below).
+**Status:** proposed (2026-11-23), implemented; the host-folder question was settled the same day (option 1).
 **Owner:** J.
 **Why:** a tool often needs more than "the workspace at `/work`". For example, it reads the code,
 writes its build output to `/dist`, and builds in a large `/tmp`. Some images also expect their
@@ -29,10 +29,10 @@ NOTICE.md.
 
    | Entry | Example | podman flag | Notes |
    |---|---|---|---|
-   | `tmpfs:TARGET[:SIZE]` | `tmpfs:/tmp:2g` | `--tmpfs TARGET:rw,size=SIZE,nosuid,nodev` | memory-backed; gone when the container stops |
+   | `tmpfs:TARGET[:SIZE]` | `tmpfs:/tmp:2g` | `--tmpfs TARGET:rw,exec,nosuid,nodev,size=SIZE` | memory-backed; gone when the container stops; `exec` because builds run what they compile there |
    | `volume:NAME:TARGET:MODE` | `volume:dist:/dist:rw` | `-v burrow-vol-<sandbox>_NAME:TARGET:MODE` | a named volume, scoped to the sandbox like caches; `--purge` removes it |
    | `work:SUBDIR:TARGET:MODE` | `work:dist:/dist:rw` | `-v <workspace>/SUBDIR:TARGET:MODE` | a folder inside the workspace, relative, no `..` and no symlink out of it; this lets a read-only workspace have one writable output folder |
-   | `host:PATH:TARGET:MODE` | `host:C:\out:/out:rw` | `-v PATH:TARGET:MODE` | a host folder outside the workspace: **where it may come from is the open question below**; always printed as a warning |
+   | `host:PATH:TARGET:MODE` | `host:C:\out:/out:rw` | `-v PATH:TARGET:MODE` | a host folder outside the workspace, from the sandbox file or `--mount` only (below); always printed as a warning |
 
    `MODE` is `ro` or `rw` (and `O` for volumes, as for caches). The precedence is the one burrow
    already uses: preset, then sandbox file, then flags. Entries are merged by `TARGET`, and the
@@ -63,7 +63,7 @@ NOTICE.md.
 
 **Decision: A** (proposed).
 
-## Open question: who may mount a host folder outside the workspace
+## Who may mount a host folder outside the workspace
 
 | Option | For | Against |
 |---|---|---|
@@ -71,7 +71,13 @@ NOTICE.md.
 | 2. Anywhere, including presets, with a warning (as root in 0011) | most flexible | a shared preset could mount `~/.ssh` or a cloud credentials folder, and only a warning shows it; much worse than root, which stays inside the container |
 | 3. Flags only | the least exposure | a sandbox file cannot record a mount the project always needs |
 
-Until this is answered, the implementation follows option 1.
+**Decision: option 1.** Host folders are the user's to choose. Presets get `tmpfs:`, `volume:`
+and `work:`, which cover a tool that reads the code, writes its output and builds in `/tmp`.
+
+- **2** was discarded: a shared preset could mount a credentials folder, which a warning does not
+  undo.
+- **3** was discarded: a project that always needs a mount could not record it in its sandbox
+  file.
 
 ## Consequences and gaps
 
@@ -84,7 +90,10 @@ Until this is answered, the implementation follows option 1.
   (WINDOWS.md); burrow cannot check that from the client. `work:` mounts have the same lock
   problem on machine shares as the workspace.
 - **SELinux:** no `:z`/`:Z` relabelling yet (roadmap), the same as the workspace.
-- **Tests (when built):**
+- **TOCTOU:** host paths are resolved (symlinks included) just before podman runs, and the
+  resolved path is mounted. Someone who can write the parent folder could still swap it in
+  between.
+- **Tests:**
   - Table tests for every entry kind, with a good value, a bad value and the clever value
     (`work:../..:/x:rw`, `host:/run/user/1000:/x:ro`, `tmpfs:/tmp,exec:1g`,
     `volume:a:/proc:rw`).

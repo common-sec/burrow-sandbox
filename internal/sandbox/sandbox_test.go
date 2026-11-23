@@ -475,7 +475,12 @@ func TestUserFlag(t *testing.T) {
 		}
 		run, sh := rec.Calls[n], rec.Calls[len(rec.Calls)-1]
 		uid, gid, _ := strings.Cut(c.user, ":")
-		if !has(run, "--user", c.user) || !has(run, "--userns", "keep-id:uid="+uid+",gid="+gid) ||
+		// Root needs no keep-id (crun rejects keep-id:uid=0); rootless root is the host user.
+		userns := has(run, "--userns", "keep-id:uid="+uid+",gid="+gid)
+		if config.IsRoot(c.user) {
+			userns = !slices.Contains(run, "--userns")
+		}
+		if !has(run, "--user", c.user) || !userns ||
 			!has(run, "--cap-drop", "ALL") || !has(run, "--security-opt", "no-new-privileges") {
 			t.Fatalf("exec --user %q: %v", c.user, run)
 		}
@@ -506,5 +511,126 @@ func TestExecRootPreset(t *testing.T) {
 	if !has(run, "--user", "0:0") || !has(run, "--cap-drop", "ALL") ||
 		!has(run, "--security-opt", "no-new-privileges") || slices.Contains(run, "--privileged") {
 		t.Fatalf("root preset: %v", run)
+	}
+	// keep-id:uid=0 is rejected by crun; rootless Podman maps root to the host user already.
+	for _, a := range run {
+		if strings.HasPrefix(a, "keep-id") {
+			t.Fatalf("root preset must not use keep-id: %v", run)
+		}
+	}
+}
+
+// U23: a sandbox's WORKDIR and MOUNT entries become exactly these podman flags, with the resolved
+// host path for work: mounts and nothing passed through.
+func TestUpMountsAndWorkdir(t *testing.T) {
+	rec := &podman.Recorder{Replies: map[string]string{"inspect": "10.89.0.2"}}
+	m := &Manager{Podman: rec, StateDir: t.TempDir()}
+	ws := t.TempDir()
+	if err := os.Mkdir(filepath.Join(ws, "dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := config.ParseMounts("tmpfs:/tmp:1g,volume:cache:/cache:rw,work:dist:/dist:rw", "test", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &config.Env{
+		Name: "dev", Image: pinned, Workspace: ws, WorkspaceMode: config.WorkspaceRO, Workdir: "/src",
+		Mounts: ms, Engine: config.EngineCrun, RunAs: "1000:1000",
+		ProxyImage: config.DefaultProxyImage, ForwardImage: config.DefaultForwardImage,
+	}
+	if err := m.Up(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	run := with(rec.Calls, "--label", labelKind+"=sandbox")
+	dist, _ := filepath.EvalSymlinks(filepath.Join(ws, "dist"))
+	for _, want := range [][]string{
+		{"-v", ws + ":/src:ro", "-w", "/src"},
+		{"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=1g"},
+		{"-v", "burrow-vol-dev_cache:/cache:rw,U"},
+		{"-v", dist + ":/dist:rw"},
+		{"--cap-drop", "ALL"},
+	} {
+		if !has(run, want...) {
+			t.Fatalf("missing %v in %v", want, run)
+		}
+	}
+	if has(run, "-w", "/work") {
+		t.Fatalf("default workdir used: %v", run)
+	}
+}
+
+// U23: a tool reads the workspace, writes only work:dist, builds in a tmpfs; flags override the
+// preset; strict mode refuses a tool mount wider than its sandbox.
+func TestExecMounts(t *testing.T) {
+	m, rec := setup(t, config.EngineCrun)
+	e, err := m.loadEnv("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(e.Workspace, "dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pm, err := config.ParseMounts("work:dist:/dist:rw,tmpfs:/build", "preset", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &config.Preset{
+		Name: "build", Image: pinned, WorkspaceMode: config.WorkspaceRO, Workdir: "/work",
+		Network: config.NetworkNone, Engine: config.EngineCrun, RunAs: "65532:65532", Mounts: pm,
+	}
+	flags, err := config.ParseMounts("tmpfs:/build:2g", "--mount", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := len(rec.Calls)
+	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{Workdir: "/code", Mounts: flags}); err != nil {
+		t.Fatal(err)
+	}
+	run := with(rec.Calls[n:], "--label", labelKind+"=tool")
+	dist, _ := filepath.EvalSymlinks(filepath.Join(e.Workspace, "dist"))
+	if !has(run, "-v", e.Workspace+":/code:ro", "-w", "/code") || !has(run, "-v", dist+":/dist:rw") ||
+		!has(run, "--tmpfs", "/build:rw,exec,nosuid,nodev,size=2g") || has(run, "--tmpfs", "/build:rw,exec,nosuid,nodev") {
+		t.Fatalf("tool mounts: %v", run)
+	}
+	// --workspace-mode none: the work: mount has no workspace to come from.
+	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{WorkspaceMode: config.WorkspaceNone}); err == nil {
+		t.Fatal("work: mount without a workspace accepted")
+	}
+	// Strict: a sandbox with a read-only workspace caps a work: rw mount; a host folder the
+	// sandbox does not have is refused.
+	e.WorkspaceMode = config.WorkspaceRO
+	if err := m.saveEnv(e); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Exec(context.Background(), "dev", "", p, nil, ExecOptions{Strict: true}); err == nil {
+		t.Fatal("strict: work:dist rw accepted with a read-only sandbox")
+	}
+	host, err := config.ParseMounts("host:"+t.TempDir()+":/data:ro", "--mount", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ro := &config.Preset{
+		Name: "scan", Image: pinned, WorkspaceMode: config.WorkspaceRO, Workdir: "/work",
+		Network: config.NetworkNone, Engine: config.EngineCrun, RunAs: "65532:65532",
+	}
+	if err := m.Exec(context.Background(), "dev", "", ro, nil, ExecOptions{Strict: true, Mounts: host}); err == nil {
+		t.Fatal("strict: host folder the sandbox lacks accepted")
+	}
+	if err := m.Exec(context.Background(), "dev", "", ro, nil, ExecOptions{Mounts: host}); err != nil {
+		t.Fatalf("host folder from --mount: %v", err)
+	}
+}
+
+// U23: down --purge removes the sandbox's MOUNT volumes with its caches.
+func TestPurgeRemovesMountVolumes(t *testing.T) {
+	m, rec := setup(t, config.EngineCrun)
+	rec.Replies["volume ls"] = "burrow-vol-dev_dist\nburrow-vol-other_dist\nburrow-cache-dev_trivy\n"
+	if err := m.Down(context.Background(), "dev", true); err != nil {
+		t.Fatal(err)
+	}
+	rm := find(rec, "volume", "rm")
+	if !slices.Contains(rm, "burrow-vol-dev_dist") || !slices.Contains(rm, "burrow-cache-dev_trivy") ||
+		slices.Contains(rm, "burrow-vol-other_dist") {
+		t.Fatalf("purge: %v", rm)
 	}
 }

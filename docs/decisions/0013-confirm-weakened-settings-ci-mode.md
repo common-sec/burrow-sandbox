@@ -131,7 +131,7 @@ Windows) and control characters in file names are replaced, so a crafted path ca
 Tests: `consent.TestCheck` (every way to get a weakening through, as a table),
 `TestQuestionNamesTheSource`, `TestQuestionHasNoControlCharacters`, `TestParseAccept`,
 `TestDryRunReportsWithoutAsking`, `TestCIFromEnv`; `main.TestRootNeedsAcceptance`,
-`TestCIModeOnlyTightens`, `TestAnnotationEscapes`; e2e A1 to A4 (FEATURES U23, U24).
+`TestCIModeOnlyTightens`, `TestAnnotationEscapes`; e2e A1 to A4 (FEATURES U24, U25).
 
 ## Gaps
 
