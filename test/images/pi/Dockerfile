@@ -5,7 +5,7 @@
 # old when chosen. Licence: MIT (dependencies: MIT, Apache-2.0, BSD, ISC, BlueOak-1.0.0, 0BSD, Unlicense).
 # The full (not slim) Node image already has git, curl and CA certificates, so nothing is
 # installed with apt (Debian packages would not be hash-pinned).
-FROM docker.io/library/node:24.22.3-bookworm@sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496
+FROM docker.io/library/node:26.13.1-bookworm@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d49
 WORKDIR /opt/agent
 COPY package.json package-lock.json ./
 # npm ci installs exactly the lockfile and checks every integrity hash.
