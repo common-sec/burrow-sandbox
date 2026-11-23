@@ -107,9 +107,10 @@ type ui struct {
 // asked for: --user, a preset or a sandbox file (decision 0011).
 func (u *ui) warnRoot(user, from string) {
 	if w := rootWarning(user, from); w != "" {
-		fmt.Fprintln(u.stderr, w)
+		// A warning that cannot be written to stderr has nowhere else to go.
+		_, _ = fmt.Fprintln(u.stderr, w)
 		if u.actions {
-			fmt.Fprintln(u.stderr, "::warning title=burrow::"+annotation(strings.TrimPrefix(w, "burrow: warning: ")))
+			_, _ = fmt.Fprintln(u.stderr, "::warning title=burrow::"+annotation(strings.TrimPrefix(w, "burrow: warning: ")))
 		}
 	}
 }
@@ -123,7 +124,8 @@ func annotation(s string) string {
 // allow checks a root user against the policy (decision 0013): --user is typed by the person
 // and accepted as is; root from a preset or a sandbox file must be accepted or confirmed.
 func (u *ui) allow(user, from string) error {
-	if user == "" || config.CheckUser(user) != nil || !config.IsRoot(user) {
+	// A malformed user is refused by config before anything starts; only a valid root is checked.
+	if valid := user != "" && config.CheckUser(user) == nil; !valid || !config.IsRoot(user) {
 		return nil
 	}
 	if from == "" {
@@ -161,9 +163,15 @@ func newUI(ci bool, accept string, dry bool, getenv func(string) string) (*ui, e
 		return nil, err
 	}
 	ci = ci || consent.CIFromEnv(getenv)
+	policy := consent.Policy{
+		Accepted: accepted,
+		CI:       ci,
+		DryRun:   dry,
+		Terminal: consent.ControllingTerminal{},
+		Report:   os.Stdout,
+	}
 	return &ui{
-		policy: consent.Policy{Accepted: accepted, CI: ci, DryRun: dry, Terminal: consent.ControllingTerminal{},
-			Report: os.Stdout},
+		policy:  policy,
 		ci:      ci,
 		actions: ci && getenv("GITHUB_ACTIONS") == "true",
 		stderr:  os.Stderr,

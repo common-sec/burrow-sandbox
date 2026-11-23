@@ -22,7 +22,7 @@ import (
 // Names are the weakenings burrow knows. Each new one is added by the decision that allows it.
 var Names = []string{Root}
 
-// Root: the sandbox, tool or shell runs as uid 0 inside (decision 0011).
+// Root is the weakening of a sandbox, tool or shell that runs as uid 0 inside (decision 0011).
 const Root = "root"
 
 // Weakening is one setting of a run that weakens a default.
