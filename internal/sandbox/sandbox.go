@@ -220,14 +220,24 @@ func engineFlags(e config.Engine) []string {
 	return nil
 }
 
+// userns maps the host user to the container's user, so it can use the workspace without making
+// it world-readable. For root (uid 0) no flag is needed: rootless Podman already maps container
+// root to the host user, and keep-id:uid=0 is rejected by the runtime ("writing gid_map: Invalid
+// argument").
+func userns(runAs string) []string {
+	if config.IsRoot(runAs) {
+		return nil
+	}
+	uid, gid, _ := strings.Cut(runAs, ":")
+	return []string{"--userns", "keep-id:uid=" + uid + ",gid=" + gid}
+}
+
 // sandboxFlags are shared by `up` and by `shell` on krun (which cannot exec into a running VM).
 func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) ([]string, error) {
-	uid, gid, _ := strings.Cut(e.RunAs, ":")
-	f := []string{
-		"--network", netName(e.Name), "--label", labelEnv + "=" + e.Name, "--label", labelKind + "=sandbox",
-		"--userns", "keep-id:uid=" + uid + ",gid=" + gid, "--user", e.RunAs,
-		"--pids-limit", "2048", "-v", homeVolume(e.Name) + ":/home/sandbox:U", "-e", "HOME=/home/sandbox",
-	}
+	f := []string{"--network", netName(e.Name), "--label", labelEnv + "=" + e.Name, "--label", labelKind + "=sandbox"}
+	f = append(f, userns(e.RunAs)...)
+	f = append(f, "--user", e.RunAs,
+		"--pids-limit", "2048", "-v", homeVolume(e.Name)+":/home/sandbox:U", "-e", "HOME=/home/sandbox")
 	f = append(f, hardening...)
 	f = append(f, engineFlags(e.Engine)...)
 	f = append(f, proxyEnv(proxyIP)...)
@@ -425,9 +435,8 @@ func (m *Manager) Exec(ctx context.Context, name, workspace string, p *config.Pr
 	if r.wsMode != config.WorkspaceNone {
 		// Map the host user to the tool's own user, so the tool can read the user's files (and
 		// write them, if rw) without making them world-readable. Inside, it is still its own uid.
-		uid, gid, _ := strings.Cut(runAs, ":")
-		args = append(args, "--userns", "keep-id:uid="+uid+",gid="+gid,
-			"-v", r.workspace+":"+r.workdir+":"+string(r.wsMode), "-w", r.workdir)
+		args = append(args, userns(runAs)...)
+		args = append(args, "-v", r.workspace+":"+r.workdir+":"+string(r.wsMode), "-w", r.workdir)
 	}
 	mf, err := mountFlags(r.env, r.mounts, r.workspace)
 	if err != nil {
