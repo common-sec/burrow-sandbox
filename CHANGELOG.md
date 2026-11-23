@@ -25,3 +25,7 @@
   with cooldown and grouping, reviewed by the security team; AGENTS.md (decision 0006). Image
   scanning (Trivy: vulnerabilities and secrets), govulncheck in `make scan`, a daily workflow for
   the mise pin.
+- The agent and distribution presets (claude, codex, opencode, pi, hermes, ubuntu, kali), their
+  images, lockfiles, Dependabot entries and the weekly `sandboxes.yml` scan moved to
+  [burrow-repo](https://github.com/common-sec/burrow-repo), which publishes them as pinned,
+  versioned presets. The test presets alpine, curl and trivy stay here for the e2e.

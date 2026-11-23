@@ -2,6 +2,7 @@
 # Every tool runs in a pinned container: the host needs only Podman and make, no Go, linters or
 # mise (decision 0010). On Windows, use WSL or Git Bash (docs/WINDOWS.md).
 .DEFAULT_GOAL := help
+BURROW_REPO := https://github.com/common-sec/burrow-repo
 
 .PHONY: help fmt lint vet test vuln build forward check scan scan-secrets \
 	scan-sast scan-deps scan-images scan-sandboxes images test-images sandbox-images e2e hooks clean
@@ -52,10 +53,12 @@ images: ## build the proxy and forwarder images (localhost/burrow-*:dev)
 test-images: ## build the small test images the e2e needs (localhost/burrow-test-*:dev, test/images)
 	sh scripts/images.sh test
 
-sandbox-images: ## build the sandbox images of the test presets: ubuntu, kali, claude, codex, opencode, pi, hermes
-	sh scripts/images.sh sandboxes
+sandbox-images: ## moved: the agent and distribution presets are built and published by burrow-repo
+	@echo "The agent and distribution presets (claude, codex, opencode, pi, hermes, ubuntu, kali) moved to $(BURROW_REPO)." >&2
+	@echo "Build one there with: make image NAME=claude, or download a published, pinned preset (its README)." >&2
+	@exit 1
 
-scan-sandboxes: ## Trivy on the sandbox images: secrets fail, vulnerabilities reported
+scan-sandboxes: ## Trivy on the test images (alpine, curl, trivy): secrets fail, vulnerabilities reported
 	sh scripts/scan.sh sandboxes
 
 e2e: build images test-images ## end-to-end checks on real rootless Podman (docs/TESTING.md)

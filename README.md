@@ -86,8 +86,8 @@ cp dist/burrow-linux-amd64 ./burrow       # or burrow-darwin-arm64, burrow-windo
 podman build -f packaging/proxy/Dockerfile -t localhost/burrow-proxy:dev .
 podman build -f packaging/forward/Dockerfile -t localhost/burrow-forward:dev .
 for n in alpine curl trivy; do podman build -t "localhost/burrow-test-$n:dev" "test/images/$n"; done
-# optional, 1 to 2 GB each: sandboxes with an agent or a distribution inside
-# for n in claude codex opencode pi hermes ubuntu kali; do podman build -t "localhost/burrow-test-$n:dev" "test/images/$n"; done
+# sandboxes with an agent or a distribution inside (claude, codex, opencode, pi, hermes, ubuntu,
+# kali) are published, pinned presets from https://github.com/common-sec/burrow-repo (download one into `burrow presets`)
 export BURROW_PRESETS_DIR=$PWD/test/presets
 
 ./burrow presets list                                       # also: presets search TERM, presets info NAME
@@ -106,7 +106,7 @@ export BURROW_PRESETS_DIR=$PWD/test/presets
 
 # An ad-hoc sandbox from a preset, on the current folder:
 ./burrow run alpine --name scratch && ./burrow shell scratch
-./burrow run claude --name agent && ./burrow shell agent -- claude   # or codex, opencode, pi, hermes
+./burrow run claude --name agent && ./burrow shell agent -- claude   # with claude.preset from burrow-repo
 
 ./burrow --dry-run run alpine                               # print the podman commands only
 ```

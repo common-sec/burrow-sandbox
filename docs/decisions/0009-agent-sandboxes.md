@@ -1,6 +1,9 @@
 # 0009: Sandbox presets for agents and distributions, built from pinned images
 
-**Status:** proposed (2026-11-22). **Owner:** J.
+**Status:** proposed (2026-11-22). **Owner:** J. **Moved** on 2026-11-23: the presets, images
+and lockfiles below now live in [burrow-repo](https://github.com/common-sec/burrow-repo) (`presets/<name>/`), which builds,
+scans and publishes them (its decision 0001 and contract). Paths and `make` targets below are as
+they were here.
 **Why:** burrow is only useful if people can run the agents they already use (claude, codex,
 opencode, pi, hermes) and common distributions (alpine, ubuntu, kali) inside it, from images whose
 contents are pinned and scanned.

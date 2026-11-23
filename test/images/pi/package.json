@@ -1,8 +1,0 @@
-{
-  "name": "burrow-test-pi",
-  "private": true,
-  "description": "Pinned @earendil-works/pi-coding-agent for the pi sandbox preset; exact version, lockfile with integrity hashes.",
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.5.2"
-  }
-}

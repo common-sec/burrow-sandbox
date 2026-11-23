@@ -1,8 +1,0 @@
-# Security overrides: hermes-agent 0.19.0 (the newest release, 2026-07-20) pins these exactly at
-# versions with HIGH/CRITICAL advisories that have fixes (Trivy, 2026-11-22). uv replaces the pin
-# with the range below; every chosen version is older than the 7-day cooldown. Remove a line once
-# hermes-agent ships the fix itself. Decision: docs/decisions/0009-agent-sandboxes.md.
-certifi>=2026.10.18      # GHSA-6q48-6c7w-9gw2 (bundled CA roots)
-cryptography>=50.0.0     # CVE-2026-69247
-pillow>=13.0.0           # CVE-2026-112393 and others
-pyjwt>=2.14.0            # CVE-2026-102268 and others

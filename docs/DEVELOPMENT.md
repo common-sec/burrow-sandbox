@@ -83,11 +83,11 @@ pinned images provide the tools ([decision 0010](decisions/0010-dev-tools-in-con
 
 | What | How | Automated |
 |---|---|---|
-| Go modules (govulncheck included), Rust crates, base images and developer tools (`packaging/`, including `packaging/dev`: Go and golangci-lint), test images and their npm/pip lockfiles (`test/images/`), scanner images (`packaging/scanners`), Actions | Dependabot, daily, 7-day cooldown; minor+patch grouped per ecosystem, security updates grouped; reviewed by the security team (CODEOWNERS) | yes |
+| Go modules (govulncheck included), Rust crates, base images and developer tools (`packaging/`, including `packaging/dev`: Go and golangci-lint), test images (`test/images/`; the agent images and their lockfiles are in burrow-repo), scanner images (`packaging/scanners`), Actions | Dependabot, daily, 7-day cooldown; minor+patch grouped per ecosystem, security updates grouped; reviewed by the security team (CODEOWNERS) | yes |
 | Image constants in Go tests (`internal/*/..._test.go`) | edit by hand when the test images change | **no** (issue #7) |
 
 **Security fixes skip the cooldown.** Go modules, crates, images (the Go and golangci-lint images
 included) and lockfiles get security updates from Dependabot without the cooldown. By hand: bump
 the digest or version, run `make check`, and name the advisory in the commit message. A package
 that pins a vulnerable dependency exactly gets an override with the advisory next to it
-(`test/images/hermes/overrides.txt`).
+(burrow-repo's `presets/hermes/overrides.txt`).
