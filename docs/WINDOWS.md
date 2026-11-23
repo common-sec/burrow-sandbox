@@ -8,11 +8,13 @@
 > for work with agents, for example `C:\burrow-work`, put only the projects you want agents to
 > see in it, and share only that.
 >
-> **The WSL backend is highly discouraged for now.** Nothing has been done yet to secure it, and
-> by default it mounts every Windows drive into the VM (the whole host directory tree is visible),
-> runs Windows programs from inside (interop), and lets the default user become root. Use the
-> Hyper-V backend, which shares only the folders you name. WSL stays on the list only to be tested
-> and hardened (exception E1, below).
+> **The WSL backend is highly discouraged for now.** By default WSL mounts every Windows drive
+> into the distro (the whole host directory tree is visible), runs Windows programs from inside
+> (interop), and lets the default user become root. If you must use WSL, use a distro of its own
+> set up as in [WSL: a dedicated distro](#wsl-a-dedicated-distro-temporary-protection), which
+> shares only the work folder and turns interop off. That setup is a **temporary protection**, not
+> a boundary (see its warning). Prefer the Hyper-V backend, which shares only the folders you
+> name. WSL stays on the list to be tested and hardened (exception E1).
 
 > **Status on Windows (2026-11-22, from J's tests).** Neither setup works out of the box yet:
 >
@@ -87,8 +89,9 @@ $env:BURROW_PRESETS_DIR = "$PWD\test\presets"
 .\burrow.exe --dry-run up -f examples\burrow.sandbox   # shows exactly what is sent to podman
 ```
 
-For the WSL test only: `podman machine init --provider wsl burrow-wsl`, then apply the hardening
-below before putting any real work in it.
+For the WSL test only: use a dedicated distro set up as in
+[WSL: a dedicated distro](#wsl-a-dedicated-distro-temporary-protection) before putting any real
+work in it.
 
 ## What to record for each backend (into TESTING.md)
 
@@ -122,8 +125,124 @@ Similar reports: [golang/go#37461](https://github.com/golang/go/issues/37461),
 [podman discussion #22752](https://github.com/containers/podman/discussions/22752),
 [lima#971](https://github.com/lima-vm/lima/issues/971).
 
+## WSL: a dedicated distro (temporary protection)
+
+> **Temporary protection, not a security boundary.** These settings live inside the distro, in
+> files that root there can change, and every WSL 2 distro runs in the **same VM and kernel**. They
+> stop accidents and casual access (an agent listing `/mnt/c`, running `cmd.exe`), not a
+> determined attacker who becomes root in the distro or escapes into the VM: root can mount `C:`
+> again, and a kernel escape reaches every distro. They also do nothing for the other distros you
+> have. Use them until the hardened machine image exists (ROADMAP, E1), and prefer Hyper-V. Serves
+> E1 and the organisation's controls CFG-02 (secure baseline configurations) and IAC-30 (least
+> privilege); SCF is credited as in secure-standard-platforms' NOTICE.md.
+
+What it gives you: a WSL distro used **only** for burrow, where Windows drives are not mounted
+except one work folder, Windows programs cannot be started from Linux, and the daily user has no
+`sudo`. Podman runs rootless inside it, as in "Status on Windows" above.
+
+**1. A distro of its own** (PowerShell, as your normal user). Do not reuse the distro you use for
+other work: its files, keys and history would be in reach.
+
+```powershell
+mkdir C:\burrow-work                       # the only Windows folder the distro will see
+wsl --list --online                         # check the name: Ubuntu-24.04 (Podman 4.9+, netavark)
+wsl --install Ubuntu-24.04 --no-launch      # if you already have an Ubuntu-24.04 distro, see below
+wsl --export Ubuntu-24.04 $env:TEMP\ubuntu-24.04.tar
+wsl --import burrow C:\wsl\burrow $env:TEMP\ubuntu-24.04.tar
+wsl --unregister Ubuntu-24.04               # ONLY if you installed it just now: this deletes it
+del $env:TEMP\ubuntu-24.04.tar
+```
+
+If you already use an `Ubuntu-24.04` distro, skip the install, export and unregister lines and
+import a clean root filesystem instead (`wsl --import burrow C:\wsl\burrow <file.tar>`): an
+export of your own distro would carry your files. *Whether a distro installed with `--no-launch`
+can be exported before its first start is unverified.* Recent WSL versions also accept a name at
+install (`wsl --install Ubuntu-24.04 --name burrow`); *that option is not on Microsoft's
+basic-commands page (checked 2026-11-23), so it is unverified*.
+
+**2. A user without sudo, and Podman** (inside the new distro; an imported distro starts as root):
+
+```sh
+wsl -d burrow                               # from PowerShell; you are root
+apt update && apt install -y podman
+useradd -m -s /bin/bash burrow              # the daily user: not in the sudo group
+passwd -l root                              # no root password inside the distro
+id -u burrow; id -g burrow                  # use these for uid= and gid= in step 4
+```
+
+**3. `/etc/wsl.conf`** (still as root in the distro):
+
+```ini
+[automount]
+enabled = false
+mountFsTab = true
+
+[interop]
+enabled = false
+appendWindowsPath = false
+
+[user]
+default = burrow
+
+[boot]
+systemd = true
+```
+
+- `automount enabled = false`: no `C:`, `D:` ... under `/mnt`; `mountFsTab = true` still mounts
+  the one folder in `/etc/fstab` (step 4).
+- `interop enabled = false`: Linux cannot start Windows programs (`cmd.exe`, `powershell.exe`,
+  `wsl.exe`), and `appendWindowsPath = false` keeps Windows folders out of `PATH`.
+- `user default = burrow`: sessions start as the user without sudo.
+- `boot systemd = true` is optional: it lets Podman use the systemd cgroup manager instead of the
+  `cgroupfs` setting above.
+
+**4. `/etc/fstab`: share only the work folder** (one line):
+
+```
+C:\134burrow-work /mnt/burrow-work drvfs rw,noatime,uid=1000,gid=1000,umask=077,metadata 0 0
+```
+
+`\134` is a backslash in fstab's escaping, so the source reads `C:\burrow-work`. Create the mount
+point with `mkdir -p /mnt/burrow-work`. *The fstab line for a single folder is not in Microsoft's
+wsl-config page (checked 2026-11-23); it follows the DrvFs options listed there and is
+unverified until it is tested here (step 3 under "What to record").*
+
+**5. Restart the distro and check** (PowerShell):
+
+```powershell
+wsl --terminate burrow                      # wait about 8 seconds before starting it again
+wsl -d burrow -- sh -c 'id; ls /mnt; ls /mnt/burrow-work; mount | grep -i drvfs'
+wsl -d burrow -- cmd.exe /c ver             # must fail: interop is off
+wsl -d burrow -- sudo -n true               # must fail: no sudo
+```
+
+The expected answer: the `burrow` user (not root), `/mnt` holds only `burrow-work` (and `wsl`/`wslg`
+entries WSL adds itself), one `drvfs` mount, and both commands fail.
+
+**Things to know:**
+- **Keep repositories on the distro's own disk** (`~/src`), not in `/mnt/burrow-work`: the share
+  is DrvFs, has the same lock problem as the Podman machine shares ("Known issues"), and is slow
+  with many small files. Use the work folder to move files in and out.
+- **Root is still one command away from Windows**: `wsl -d burrow -u root` works for anyone logged
+  in as you on Windows. That is accepted (the Windows user is trusted); with interop off, nothing
+  inside the distro can run `wsl.exe` to do the same.
+- **Network:** WSL's default NAT mode forwards ports bound in the distro to `localhost` on
+  Windows (`localhostForwarding`, in `%UserProfile%\.wslconfig`, global to every distro). burrow
+  publishes ports only on request (`burrow port`); do not turn on `networkingMode=mirrored` for
+  this distro's sake, it changes every distro.
+- **Other distros** share the VM and kernel and keep their own settings: harden or remove the ones
+  you do not need.
+
+Sources (checked 2026-11-23): Microsoft, [Advanced settings configuration in
+WSL](https://learn.microsoft.com/en-us/windows/wsl/wsl-config) (updated 2026-10-16:
+`[automount] enabled`, `mountFsTab`, DrvFs options, `[interop]`, `[user] default`, `[boot]
+systemd`, the 8-second rule, `.wslconfig` networking), and [Basic commands for
+WSL](https://learn.microsoft.com/en-us/windows/wsl/basic-commands) (updated 2025-12-01:
+`--install`, `--no-launch`, `--export`, `--import`, `--unregister`; `[user] default` for imported
+distros).
+
 ## WSL hardening (E1, to build)
 
-A machine image of our own: `/etc/wsl.conf` with `[automount] enabled=false`, `mountFsTab=false`,
-`[interop] enabled=false`, `appendWindowsPath=false`; an unprivileged default user with no sudo
-and root locked. Root inside could undo it, so the shared kernel and network stay a recorded risk.
+The steps above, as a machine image of our own built and pinned in CI, with root locked and the
+settings checked at start. Root inside could undo them, so the shared kernel and network stay a
+recorded risk.

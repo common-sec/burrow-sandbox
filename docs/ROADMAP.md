@@ -38,7 +38,7 @@ Legend: ✓ done · ◐ partly · ○ not started
 | | Item | Serves |
 |---|---|---|
 | ○ | `docs/WINDOWS.md` filled from real runs: WSL vs Hyper-V (folder sharing, ports, performance, admin rights) | R2, E1 |
-| ○ | Hardened WSL machine image: no drive automount, no interop, no root inside, built and pinned in CI | E1 |
+| ◐ | Hardened WSL: manual steps for a dedicated distro (one shared folder, no interop, no sudo) in `docs/WINDOWS.md`, a temporary protection; still to do: a machine image built and pinned in CI, tested on a real machine | E1 |
 | ○ | `burrow doctor`: checks the backend (rootless, machine provider, WSL hardening, SELinux, cgroups) and says what is missing | O7, D5 |
 | ○ | Podman machine on Linux too (provider, and the fallback without KVM) | R2 |
 | ○ | macOS discovery: try the Podman machine (applehv and libkrun providers), find the security issues (shared folders, ports, what the VM sees) and recommend an install and usage path | D6 |
