@@ -1,9 +1,9 @@
-# 0012: Confirming weakened settings locally, and a CI mode that never weakens
+# 0013: Confirming weakened settings locally, and a CI mode that never weakens
 
-**Status:** draft (2026-11-23), evaluation only, nothing implemented. **Owner:** J.
+**Status:** proposed (2026-11-23); option C chosen by J and implemented. **Owner:** J.
 **Builds on** [0011](0011-secure-defaults-user-overrides.md) (secure by default, tunable with
-warnings). Root from presets (`RUN_AS=0:0`) is being allowed in a separate change; this record
-decides how a person confirms such a setting, and what changes when burrow runs in CI.
+warnings) and on its amendment that allows root from presets and sandbox files (`RUN_AS=0:0`).
+This record decides how a person confirms such a setting, and what changes when burrow runs in CI.
 
 Serves O3 (deviations are visible exceptions), O7 (usable), SB5 (reviewable), and the
 organisation's controls CFG-02 (secure baseline configurations), IAC-30 (least privilege) and
@@ -61,7 +61,7 @@ can set cheaply and silently.** The `CI` variable is exactly that: one line in a
 | D. C, plus remembered approvals (direnv style) | the person is asked once per preset and setting, not every run (O7) | an approval store in the state folder, which a host agent could write; one more file format; invalidation rules to get right |
 | E. A policy file outside the user's reach (`/etc/burrow/policy`, deployed by MDM) saying what may be accepted, locally and in CI | the organisation decides, D3/I1; works as a ceiling even against a host agent if the file is root-owned | needs a policy format and MDM deployment; overkill before burrow has users |
 
-## Recommendation: C now, D when the preset index arrives, E later
+## Decision: C now (chosen by J, 2026-11-23); D when the preset index arrives, E later
 
 ### Weakening settings get names
 
@@ -74,7 +74,7 @@ shows it in `--dry-run`.
 
 | Source | Accepted? |
 |---|---|
-| A flag naming it: `--user 0:0` (already explicit, 0011) or `--accept root` | yes, no prompt |
+| A flag naming it: `--user 0:0` (already explicit, 0011) or the global `--accept root` (before the command: `burrow --accept root run kali`) | yes, no prompt |
 | A preset or sandbox file asks for it, a person is at a terminal | prompt on the controlling terminal (`/dev/tty`, `CONIN$` on Windows), never on stdin, so `yes \| burrow ...` does not answer it; the prompt names the setting, the file and where it came from; default **No** |
 | A preset or sandbox file asks for it, no terminal (an agent, a script, CI) | **refused**, with the flag to add: `burrow: preset kali asks for root (RUN_AS=0:0); add --accept root to run it` |
 | An environment variable (`BURROW_ACCEPT=root`, `CI=true`) | **no**: variables are inherited silently by every child process and are the cheapest thing for an agent to set |
@@ -87,17 +87,19 @@ The warning of 0011 is still printed on every run that has an accepted weakening
   only makes burrow stricter, it is safe to detect from a variable anyone can set: setting
   `CI=true` to "bypass the checks" makes things harder, not easier. `CI=false` does **not**
   switch it off when `--ci` is given.
-- **What it changes** (proposed, each to be confirmed when built):
+- **What it changes** (built):
   - never prompts, never allocates a TTY: a weakening without `--accept` fails (as above);
-  - warnings are also printed in a machine-readable form (JSON line, and a GitHub `::warning::`
-    annotation when `GITHUB_ACTIONS=true`) so they show in the run summary;
-  - images must be pinned by digest (no tag-only images), since CI cannot ask;
-  - no user presets folder implicitly: presets by explicit path or, later, from the index;
-  - optional `--warnings-as-errors` for teams that accept no weakening at all.
+  - warnings are also printed as a GitHub `::warning::` annotation when `GITHUB_ACTIONS=true`,
+    escaped so a file name cannot start a workflow command of its own, so they show in the run
+    summary.
+- **Considered and not built:** images pinned by digest in CI only (burrow already requires a
+  digest or a `localhost/` image everywhere, so there is nothing to tighten); no implicit user
+  presets folder in CI (a runner has none, and burrow's own CI sets `BURROW_PRESETS_DIR`
+  explicitly); a JSON warning line and `--warnings-as-errors` (wait for the audit log, roadmap).
 - **What it never changes:** the defaults themselves, strict mode, the things 0011 keeps
   impossible. No "CI profile" loosens anything.
 - **How verification is skipped safely in CI:** it is not skipped, it is pre-answered. The
-  workflow file says `burrow run --ci --accept root kali ...`; that file is code-reviewed
+  workflow file says `burrow --ci --accept root run kali ...`; that file is code-reviewed
   (CODEOWNERS on `.github/`), so a new weakening shows in a diff with its name in it.
 
 ### Why not B, as first suggested
@@ -118,6 +120,19 @@ the person's own folder and the prompt is rare.
 
 None new. C adds a check; it relaxes nothing. The root exception stays in 0011.
 
+## Implementation
+
+`internal/consent` (names, `--accept` parsing, the question on the controlling terminal, the
+refusal that names the flag, `CI` detection); `cmd/burrow` checks root before `up`, `run`,
+`exec` and `shell` start anything, then warns as before. `--dry-run` neither asks nor refuses: it
+prints what a real run would need. The question goes to `/dev/tty` (`CONIN$`/`CONOUT$` on
+Windows) and control characters in file names are replaced, so a crafted path cannot rewrite it.
+
+Tests: `consent.TestCheck` (every way to get a weakening through, as a table),
+`TestQuestionNamesTheSource`, `TestQuestionHasNoControlCharacters`, `TestParseAccept`,
+`TestDryRunReportsWithoutAsking`, `TestCIFromEnv`; `main.TestRootNeedsAcceptance`,
+`TestCIModeOnlyTightens`, `TestAnnotationEscapes`; e2e A1 to A4 (FEATURES U23, U24).
+
 ## Gaps
 
 - An agent on the host, running as the person, can type `--accept root`, answer a prompt
@@ -129,6 +144,8 @@ None new. C adds a check; it relaxes nothing. The root exception stays in 0011.
 - The CI detection list is only `CI`; other systems (Jenkins sets `JENKINS_URL`, not `CI`:
   *unverified*) need `--ci`.
 - Windows console prompt (`CONIN$`) not tested.
+- Root in a stored sandbox is checked at `up`/`run`; a later `burrow shell` into it runs as the
+  stored user without asking again (it was accepted when the sandbox started).
 - Nothing records accepted weakenings yet (audit log: roadmap), same gap as 0011.
 
 ## Why the others were discarded

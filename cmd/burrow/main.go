@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/common-sec/burrow-sandbox/internal/config"
+	"github.com/common-sec/burrow-sandbox/internal/consent"
 	"github.com/common-sec/burrow-sandbox/internal/podman"
 	"github.com/common-sec/burrow-sandbox/internal/sandbox"
 )
@@ -55,12 +56,17 @@ Usage:
 
 --user UID:GID runs as that user instead of the preset's RUN_AS. Root (0:0) is allowed from the
 flag, a preset or a sandbox file; burrow warns every time, and root still has no capabilities.
+Root asked for by a preset or sandbox file must be confirmed: burrow asks on the terminal, and
+without one (an agent, a script, CI) it refuses unless --accept root is given.
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
 
 Global flags (before the command):
   --dry-run       print the podman commands instead of running them
   -v              print every podman command before running it
   --podman PATH   podman binary (default: podman from PATH)
+  --accept LIST   accept these weakened settings without asking (comma-separated: root)
+  --ci            CI mode (also when CI=true): never ask (refuse what is not accepted), no TTY,
+                  warnings also as GitHub annotations; it only tightens burrow, never loosens it
 `
 
 func main() {
@@ -88,12 +94,51 @@ func hint(err error) string {
 	return ""
 }
 
+// ui is how burrow talks to the person for this run: warnings, and the policy for settings
+// that weaken a default (decision 0013).
+type ui struct {
+	policy  consent.Policy
+	ci      bool
+	actions bool // GitHub Actions: warnings also as annotations, so they show in the run summary
+	stderr  io.Writer
+}
+
 // warnRoot says it plainly whenever a sandbox, tool or shell runs as root, and where root was
 // asked for: --user, a preset or a sandbox file (decision 0011).
-func warnRoot(user, from string) {
+func (u *ui) warnRoot(user, from string) {
 	if w := rootWarning(user, from); w != "" {
-		fmt.Fprintln(os.Stderr, w)
+		fmt.Fprintln(u.stderr, w)
+		if u.actions {
+			fmt.Fprintln(u.stderr, "::warning title=burrow::"+annotation(strings.TrimPrefix(w, "burrow: warning: ")))
+		}
 	}
+}
+
+// annotation escapes a GitHub Actions workflow command message, so a preset path with a newline
+// cannot start a command of its own (GitHub's escaping: %, CR, LF).
+func annotation(s string) string {
+	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace(s)
+}
+
+// allow checks a root user against the policy (decision 0013): --user is typed by the person
+// and accepted as is; root from a preset or a sandbox file must be accepted or confirmed.
+func (u *ui) allow(user, from string) error {
+	if user == "" || config.CheckUser(user) != nil || !config.IsRoot(user) {
+		return nil
+	}
+	if from == "" {
+		from = "RUN_AS"
+	}
+	return u.policy.Check([]consent.Weakening{{Name: consent.Root, From: from, Explicit: from == "--user"}})
+}
+
+// root warns about and checks a root user before anything starts.
+func (u *ui) root(user, from string) error {
+	if err := u.allow(user, from); err != nil {
+		return err
+	}
+	u.warnRoot(user, from)
+	return nil
 }
 
 func rootWarning(user, from string) string {
@@ -108,13 +153,36 @@ func rootWarning(user, from string) string {
 		"writes are yours on the host"
 }
 
+// newUI reads the global --ci and --accept flags. CI mode only tightens, so the CI variable may
+// switch it on; nothing switches it off.
+func newUI(ci bool, accept string, dry bool, getenv func(string) string) (*ui, error) {
+	accepted, err := consent.ParseAccept(accept)
+	if err != nil {
+		return nil, err
+	}
+	ci = ci || consent.CIFromEnv(getenv)
+	return &ui{
+		policy: consent.Policy{Accepted: accepted, CI: ci, DryRun: dry, Terminal: consent.ControllingTerminal{},
+			Report: os.Stdout},
+		ci:      ci,
+		actions: ci && getenv("GITHUB_ACTIONS") == "true",
+		stderr:  os.Stderr,
+	}, nil
+}
+
 func run(argv []string) error {
 	fs := flag.NewFlagSet("burrow", flag.ContinueOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	dry := fs.Bool("dry-run", false, "")
 	verbose := fs.Bool("v", false, "")
 	bin := fs.String("podman", "", "")
+	ci := fs.Bool("ci", false, "")
+	accept := fs.String("accept", "", "")
 	if err := fs.Parse(argv); err != nil {
+		return err
+	}
+	u, err := newUI(*ci, *accept, *dry, os.Getenv)
+	if err != nil {
 		return err
 	}
 	args := fs.Args()
@@ -138,7 +206,7 @@ func run(argv []string) error {
 	if err != nil {
 		return err
 	}
-	m := &sandbox.Manager{Podman: runner, StateDir: state, TTY: isTerminal(os.Stdin)}
+	m := &sandbox.Manager{Podman: runner, StateDir: state, TTY: !u.ci && isTerminal(os.Stdin)}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	find := func(ref string) (*config.Preset, error) { return config.FindPreset(ref, userPresets) }
@@ -179,7 +247,9 @@ func run(argv []string) error {
 			return fmt.Errorf("%s: %w", *file, err)
 		}
 		e.Definition = *file
-		warnRoot(e.RunAs, strings.Replace(e.RunAsFrom, "the sandbox file", *file, 1))
+		if err := u.root(e.RunAs, strings.Replace(e.RunAsFrom, "the sandbox file", *file, 1)); err != nil {
+			return err
+		}
 		return up(ctx, m, e)
 	case "run":
 		name := sub.String("name", "", "")
@@ -202,7 +272,9 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		warnRoot(e.RunAs, e.RunAsFrom)
+		if err := u.root(e.RunAs, e.RunAsFrom); err != nil {
+			return err
+		}
 		return up(ctx, m, e)
 	case "exec":
 		name := sub.String("s", "", "")
@@ -221,9 +293,12 @@ func run(argv []string) error {
 			return err
 		}
 		if *user != "" {
-			warnRoot(*user, "--user")
+			err = u.root(*user, "--user")
 		} else {
-			warnRoot(p.RunAs, "RUN_AS in preset "+p.Name+" ("+p.Source+")")
+			err = u.root(p.RunAs, "RUN_AS in preset "+p.Name+" ("+p.Source+")")
+		}
+		if err != nil {
+			return err
 		}
 		if *name == "" && *ws == "" {
 			if *name, err = nameFromFile(); err != nil {
@@ -241,7 +316,9 @@ func run(argv []string) error {
 		if err != nil || len(pos) > 1 {
 			return errors.New("usage: burrow shell [NAME] [--user UID:GID] [-- CMD ARGS...]")
 		}
-		warnRoot(*user, "--user")
+		if err := u.root(*user, "--user"); err != nil {
+			return err
+		}
 		name, err := nameArg(pos)
 		if err != nil {
 			return err

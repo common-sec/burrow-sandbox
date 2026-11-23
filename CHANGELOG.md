@@ -2,6 +2,10 @@
 
 ## 0.1.0 (unreleased): prototype
 
+- Root from a preset or sandbox file must be confirmed (decision 0013): burrow asks on the
+  controlling terminal (default no); without one, or in CI mode, it refuses unless `--accept root`
+  is given. `--user 0:0` counts as accepted. `--ci` (or `CI=true`) only tightens: no prompts, no
+  TTY, warnings also as GitHub annotations.
 - burrow runs presets, not images (decision 0005): `burrow up` from a sandbox file (like compose),
   `burrow run PRESET` for an ad-hoc sandbox, `burrow exec PRESET` for tools with workspace and
   proxy inheritance capped by the sandbox, `burrow shell`, `port`, `down`, `ls`, `presets`,
