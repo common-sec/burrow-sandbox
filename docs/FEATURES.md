@@ -38,13 +38,13 @@ reviewer** checks what burrow allows.
 | U21 | As a developer, a `run` or `up` that fails leaves nothing behind, so I can fix the cause and run it again (no "network already exists"). | `sandbox.TestUpCleansUpAfterFailure` |
 | U22 | As a developer, I run a sandbox, a tool or a shell as another user (`--user UID:GID` on `run`, `up`, `exec`, `shell`) without editing the preset; `--user 0:0` gives root (still without capabilities) with a warning, and no preset or sandbox file can ask for root. | `sandbox.TestUserFlag`, `config.TestNewSandboxUserOverride`, `config.TestRootOnlyFromTheFlag` |
 
-## The proxy: iron by default, embedded, or none
+## The proxy: iron by default, embedded, or bypass
 
 | # | Story | Proved by |
 |---|---|---|
 | U23 | As a developer, my sandbox's only exit is iron-proxy without my setting anything, so that I use the proxy that will carry secrets, with the same allowlist, the same layout and the same blocks; tools next to my sandbox get their own instance. | E3, E4, E5, X1 to X5, I2, I3, S5, S6; `ironproxy.TestRenderListenersAndModes`, `TestRenderEmptyAllowDeniesAll`, `TestRenderRejects`, `TestCheckPorts`, `TestDenyCIDRsCoverBurrowProxy`; `main.TestRunRefuses`, `TestRunWritesPrivateConfig`, `TestDefaultEngineIsIron` (`cmd/burrow-proxy`); `sandbox.TestUpProxyEngines`, `TestExecWithoutSandboxProxyKind`; `config.TestProxyKind` |
 | U24 | As a developer, I choose burrow's embedded proxy instead (`PROXY=embedded` or `--proxy embedded`), with the same flags and the same container, so that I have a fallback if iron-proxy fails me. | M1 to M7; `sandbox.TestUpProxyEngines`, `TestExecWithoutSandboxProxyKind`; `main.TestDryRunCommands` |
-| U25 | As a developer, I can run a sandbox without a proxy (`--proxy none --accept-risk`) when my work cannot go through one, and burrow warns me every time; the agent cannot turn the proxy off from a file it can write, and tools next to that sandbox keep their own proxy. | O1 to O5; `sandbox.TestUpWithoutProxy`; `config.TestProxyKind`; `main.TestDryRunCommands` |
+| U25 | As a developer, I can run a sandbox without a proxy (`--proxy bypass --accept-risk`) when my work cannot go through one, and burrow warns me every time; the agent cannot turn the proxy off from a file it can write, and tools next to that sandbox keep their own proxy. | O1 to O5; `sandbox.TestUpWithoutProxy`; `config.TestProxyKind`; `main.TestDryRunCommands` |
 
 ## Isolation between sandboxes
 

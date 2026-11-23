@@ -57,7 +57,7 @@ same flags for every engine and `-engine iron` (default) or `-engine embedded`. 
 |---|---|---|
 | default | `iron` | nothing to set |
 | `PROXY=embedded` or `--proxy embedded` | burrow's own CONNECT proxy (`internal/proxy`) | `up`, `run`; `exec` without a sandbox |
-| `PROXY=none` or `--proxy none` | **no proxy**: the sandbox gets a normal network with a route out and DNS | `up`, `run` only, and only with `--accept-risk` on the command line (a sandbox file cannot accept for the user); burrow prints a warning. Tools next to it still get their own proxy (iron): a tool never inherits "no proxy" |
+| `PROXY=bypass` or `--proxy bypass` | **bypass**: no proxy is deployed; the sandbox gets a normal network with full internet access and DNS (for example sslscan against a target from a Kali sandbox) | `up`, `run` only, and only with `--accept-risk` on the command line (a sandbox file cannot accept for the user); burrow prints a warning. Tools next to it still get their own proxy (iron): a tool never inherits "no proxy" |
 
 A tool next to a sandbox gets the sandbox's engine (its own instance, as today). Presets cannot
 set `PROXY`: the proxy is the user's choice for their environment (decision 0011).
@@ -94,7 +94,7 @@ privileges, `--http-proxy=false`, the tmpfs and `--memory 128m --pids-limit 128`
 | What | Owner | Reason | Expiry |
 |---|---|---|---|
 | iron-proxy, the default engine, is a young project with one main maintainer from one vendor (78 of its commits since May by one person) | J | no better candidate now (DR-0009: Envoy is the fallback; the embedded engine stays one flag away, `--proxy embedded`) | review at the next proxy decision in the organisation, or 2027-05-23 |
-| `PROXY=none` removes the proxy (SB3) | J | some work cannot go through a proxy yet; the user accepts it explicitly with `--accept-risk` on the command line, with a warning, never from a file (decision 0011) | review with the audit log (roadmap), or 2027-05-23 |
+| `PROXY=bypass` removes the proxy (SB3) | J | some work needs the target directly, such as TLS scanners (sslscan) in a Kali sandbox; the user accepts it explicitly with `--accept-risk` on the command line, with a warning, never from a file (decision 0011) | review with the audit log (roadmap), or 2027-05-23 |
 | With iron, plain HTTP to an allowed host is forwarded, on any port (`http://allowed:22/` is dialled; the embedded engine refuses everything but CONNECT). Only allowed hosts are reachable, and only as HTTP | J | iron-proxy has no per-scheme or per-port rule; closing it needs a transform (the spike's policy sidecar), an upstream change, or a small gate in burrow-proxy | when TLS termination lands (step 2 below), or 2027-02-23 |
 | With iron, `*.example.com` also allows `example.com` itself (embedded: subdomains only) | J | iron-proxy's glob matches the apex too; the apex of a domain the user already trusts | the same |
 
@@ -118,11 +118,11 @@ Linux, Podman 4.9.3 (rootful, netavark), amd64, 2026-11-23:
 
 - Unit tests: rendered configuration (listeners, modes, deny list against the embedded engine's
   rule, input that tries to inject JSON or globs), `burrow-proxy` flags and engines, the exact
-  podman command for each engine and for `none` (sandboxes and tools), the `PROXY` key,
+  podman command for each engine and for `bypass` (sandboxes and tools), the `PROXY` key,
   `--proxy` and `--accept-risk`.
 - `make e2e`: the existing checks now run through iron (the default); the new checks pass:
   X1 to X5 (iron is the engine, SNI not allowed, SOCKS5 to another host, metrics not reachable,
-  audit log), M1 to M7 (embedded engine), O1 to O5 (`none` refused without `--accept-risk`,
+  audit log), M1 to M7 (embedded engine), O1 to O5 (`bypass` refused without `--accept-risk`,
   started with it, no proxy, direct route, a tool next to it keeps its own proxy).
 - By hand: `CONNECT pypi.org:22` with TLS reached pypi.org on 443 (no port pivot); plain HTTP to
   pypi.org:22 was dialled (the exception above).

@@ -38,7 +38,7 @@ PRESET=curl
 WORKSPACE=.
 ALLOW=pypi.org
 EOT
-trap '$b down e2e --purge >/dev/null 2>&1; $b down e2e-run --purge >/dev/null 2>&1; $b down e2e-emb --purge >/dev/null 2>&1; $b down e2e-none --purge >/dev/null 2>&1; podman volume rm -f burrow-cache-exec_trivy >/dev/null 2>&1' EXIT
+trap '$b down e2e --purge >/dev/null 2>&1; $b down e2e-run --purge >/dev/null 2>&1; $b down e2e-emb --purge >/dev/null 2>&1; $b down e2e-bypass --purge >/dev/null 2>&1; podman volume rm -f burrow-cache-exec_trivy >/dev/null 2>&1' EXIT
 check E1-up ok $b up -f "$ws/burrow.sandbox"
 check E2-workspace ok $b shell e2e -- cat /work/README.txt
 check E3-allowed ok $b shell e2e -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
@@ -142,18 +142,18 @@ check M4-embedded-other-host blocked $b shell e2e-emb -- curl -fsS $nocert -m 10
 check M5-embedded-plain-http blocked $b shell e2e-emb -- curl -fsS -m 10 -o /dev/null -x "http://$(podman inspect --format '{{(index .NetworkSettings.Networks "burrow-e2e-emb").IPAddress}}' burrow-e2e-emb-proxy):3128" http://pypi.org/
 check M6-embedded-tool-blocks-others blocked $b exec -s e2e-emb .cache/e2e-inherit.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
 check M7-embedded-standalone-tool ok $b exec --proxy embedded --workspace "$ws2" .cache/e2e-fallback.preset -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
-# PROXY=none: refused without --accept-risk; with it, a direct route out and no proxy; a tool
+# PROXY=bypass: refused without --accept-risk; with it, a direct route out and no proxy; a tool
 # next to it still has its own (iron) proxy.
-cat > "$ws3/none.sandbox" <<EOT
-NAME=e2e-none
+cat > "$ws3/bypass.sandbox" <<EOT
+NAME=e2e-bypass
 PRESET=curl
 WORKSPACE=.
-PROXY=none
+PROXY=bypass
 EOT
-check O1-none-needs-accept-risk blocked $b up -f "$ws3/none.sandbox"
-check O2-none-up ok $b up -f "$ws3/none.sandbox" --accept-risk
-check O3-none-has-no-proxy blocked podman container exists burrow-e2e-none-proxy
-check O4-none-direct-route ok $b shell e2e-none -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
-check O5-none-tool-keeps-proxy blocked $b exec -s e2e-none .cache/e2e-wider.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
+check O1-bypass-needs-accept-risk blocked $b up -f "$ws3/bypass.sandbox"
+check O2-bypass-up ok $b up -f "$ws3/bypass.sandbox" --accept-risk
+check O3-bypass-has-no-proxy blocked podman container exists burrow-e2e-bypass-proxy
+check O4-bypass-direct-route ok $b shell e2e-bypass -- curl -fsS $nocert -m 20 -o /dev/null https://pypi.org/simple/
+check O5-bypass-tool-keeps-proxy blocked $b exec -s e2e-bypass .cache/e2e-wider.preset -- curl -fsS $nocert -m 10 -o /dev/null https://example.com/
 echo "# e2e: $fails failure(s)"
 exit "$fails"

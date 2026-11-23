@@ -33,9 +33,9 @@ burrow runs tool and environment presets focused on security, not images: a pres
 image plus the least privilege it needs. Presets live in your presets folder (` + "`burrow presets`" + `).
 
 Usage:
-  burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [--proxy iron|embedded|none [--accept-risk]]
+  burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [--proxy iron|embedded|bypass [--accept-risk]]
         start the persistent sandbox defined by a sandbox file (default ./` + SandboxFile + `)
-  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [--proxy iron|embedded|none [--accept-risk]]
+  burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [--proxy iron|embedded|bypass [--accept-risk]]
         start an ad-hoc persistent sandbox from a preset (workspace: current folder)
   burrow exec [-s SANDBOX] [--strict] [--workspace DIR] [--user UID:GID] [--proxy iron|embedded] PRESET [-- ARGS...]
         run a preset as a one-off tool next to the sandbox, with what the preset asks for.
@@ -57,7 +57,7 @@ Usage:
 never from a preset or sandbox file; root still has no capabilities.
 --proxy (or PROXY= in the sandbox file) picks the engine of the sandbox's only exit: iron
 (iron-proxy, the default) or embedded (burrow's own CONNECT proxy). Tools next to a sandbox get the
-same engine, their own instance. none removes the proxy (direct network, no filter): only with
+same engine, their own instance. bypass deploys no proxy (full internet access and DNS): only with
 --accept-risk on the command line, with a warning; tools next to it still get their own proxy.
 NAME defaults to the NAME in ./` + SandboxFile + `. Flags go before "--".
 
@@ -103,8 +103,8 @@ func warnRoot(user string) {
 
 // warnProxy says it plainly when a sandbox runs without a proxy (decision 0011).
 func warnProxy(k config.ProxyKind) {
-	if k == config.ProxyNone {
-		fmt.Fprintln(os.Stderr, "burrow: warning: PROXY=none (--accept-risk): the sandbox has a direct route "+
+	if k == config.ProxyBypass {
+		fmt.Fprintln(os.Stderr, "burrow: warning: PROXY=bypass (--accept-risk): the sandbox has a direct route "+
 			"out and DNS; nothing limits which hosts it reaches or what it sends them")
 	}
 }
@@ -165,7 +165,7 @@ func run(argv []string) error {
 		accept := sub.Bool("accept-risk", false, "")
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 0 {
-			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [--proxy iron|embedded|none [--accept-risk]]")
+			return errors.New("usage: burrow up [-f FILE] [--image IMAGE] [--user UID:GID] [--proxy iron|embedded|bypass [--accept-risk]]")
 		}
 		warnRoot(*user)
 		keys, err := config.LoadSandboxFile(*file)
@@ -196,7 +196,7 @@ func run(argv []string) error {
 		accept := sub.Bool("accept-risk", false, "")
 		pos, _, err := parseArgs(sub, rest)
 		if err != nil || len(pos) != 1 {
-			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [--proxy iron|embedded|none [--accept-risk]]")
+			return errors.New("usage: burrow run PRESET [--name NAME] [--image IMAGE] [--workspace DIR] [--user UID:GID] [--proxy iron|embedded|bypass [--accept-risk]]")
 		}
 		warnRoot(*user)
 		p, err := find(pos[0])

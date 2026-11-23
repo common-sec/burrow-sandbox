@@ -19,14 +19,14 @@ lists the checks.
   strict mode refusing them, `CAP_ADD`), krun `shell` falls back to a one-shot VM, port
   forwarder on the egress network, purge of the sandbox's own cache volumes.
 - `cmd/burrow`: flags anywhere before `--`; `run`, `exec --strict`, `presets list/search/info`,
-  `--proxy embedded`, `--proxy none --accept-risk` (refused without it, and on `exec`) and unknown engines refused, in `--dry-run`.
+  `--proxy embedded`, `--proxy bypass --accept-risk` (refused without it, and on `exec`) and unknown engines refused, in `--dry-run`.
 - `internal/ironproxy` and `cmd/burrow-proxy`: the rendered iron-proxy configuration (only
   the tunnel listener reachable, DNS and management off, sni-only, deny list covering every
   address the embedded engine refuses, allowlist input that tries to inject JSON or globs refused),
   ports other than 443 refused for iron, unknown engines refused, iron as the default engine, the
   configuration written 0600.
 - `internal/sandbox`: the proxy's exact flags for each engine (tmpfs, memory, the defaults of every
-  proxy, `-engine`), `PROXY=none` (no proxy container, a normal network, no proxy variables),
+  proxy, `-engine`), `PROXY=bypass` (no proxy container, a normal network, no proxy variables),
   tools next to the sandbox and without one (`--proxy`).
 - `internal/proxy`: allowlist matching (suffix tricks, IP literals, ports), private addresses
   refused after resolution, CONNECT end to end against a TLS server, plain HTTP refused.
@@ -81,8 +81,8 @@ never when it could not start (also not when the sandbox or a local image is mis
 | M5 | plain HTTP through the embedded engine | blocked |
 | M6 | a tool next to that sandbox: another host | blocked |
 | M7 | a tool without a sandbox, `--proxy embedded`: allowed host | works |
-| O1 | `burrow up` with `PROXY=none` and no `--accept-risk` | blocked (refused) |
-| O2, O3 | the same with `--accept-risk`; no proxy container | works / none |
+| O1 | `burrow up` with `PROXY=bypass` and no `--accept-risk` | blocked (refused) |
+| O2, O3 | the same with `--accept-risk`; no proxy container | works / no container |
 | O4 | direct connection from it | works (accepted risk) |
 | O5 | a tool next to it keeps its own proxy: another host | blocked |
 
@@ -93,6 +93,6 @@ never when it could not start (also not when the sandbox or a local image is mis
 | 2026-11-18 | Ubuntu 24.04 (cloud agent session), rootless user, runc, cgroups v1 | 4.9.3 | 13/13 (with `E2E_TLS_INSECURE=1`: that network intercepts TLS) |
 | 2026-11-18 | same, after the presets redesign (0005) | 4.9.3 | 26/26 (same flag) |
 | 2026-11-20 | same, after the security model rework (0007, 0008); forwarder image built without the clippy step (no network in that build) | 4.9.3 | 38/38 (same flag) |
-| 2026-11-23 | Ubuntu 24.04 (cloud agent session), **rootful**, crun; iron the default engine, embedded and none (0013) | 4.9.3 | X1 to X5, M1 to M7, O1 to O5: 17/17 (same flag); every other check now runs through iron. Other checks: 11 failed for reasons outside the change (workspace permissions under rootful Podman; the forwarder image could not be built behind that network's TLS interception); to run rootless |
+| 2026-11-23 | Ubuntu 24.04 (cloud agent session), **rootful**, crun; iron the default engine, embedded and bypass (0013) | 4.9.3 | X1 to X5, M1 to M7, O1 to O5: 17/17 (same flag); every other check now runs through iron. Other checks: 11 failed for reasons outside the change (workspace permissions under rootful Podman; the forwarder image could not be built behind that network's TLS interception); to run rootless |
 | | Windows, WSL machine | | *to run* |
 | | Windows, Hyper-V machine | | *to run* |

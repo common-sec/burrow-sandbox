@@ -67,10 +67,10 @@ const (
 	ProxyIron ProxyKind = "iron"
 	// ProxyEmbedded is burrow's own small CONNECT proxy (internal/proxy).
 	ProxyEmbedded ProxyKind = "embedded"
-	// ProxyNone (sandboxes only) disables the proxy: the sandbox gets a normal network with a
+	// ProxyBypass (sandboxes only) disables the proxy: the sandbox gets a normal network with a
 	// route out and DNS, and nothing filters it. Only with --accept-risk, with a warning
 	// (decision 0011). Tools next to such a sandbox still get their own proxy.
-	ProxyNone ProxyKind = "none"
+	ProxyBypass ProxyKind = "bypass"
 )
 
 // ToolCaps are the capabilities a tool preset may ask for with CAP_ADD: at most Podman's own
@@ -222,13 +222,13 @@ const (
 	DefaultForwardImage = "localhost/burrow-forward:dev"
 )
 
-// CheckProxy accepts the proxy kinds of a sandbox: iron, embedded or none.
+// CheckProxy accepts the proxy kinds of a sandbox: iron, embedded or bypass.
 func CheckProxy(k ProxyKind) error {
 	switch k {
-	case ProxyIron, ProxyEmbedded, ProxyNone:
+	case ProxyIron, ProxyEmbedded, ProxyBypass:
 		return nil
 	}
-	return fmt.Errorf("PROXY %q: iron, embedded or none", k)
+	return fmt.Errorf("PROXY %q: iron, embedded or bypass", k)
 }
 
 // CheckToolProxy accepts the proxy kinds of a tool: a tool with NETWORK=proxy always has one.
@@ -285,7 +285,7 @@ type Overrides struct {
 	RunAs     string // --user: uid:gid; unlike RUN_AS it may be root (exception in decision 0011)
 	Proxy     ProxyKind
 	// AcceptRisk (--accept-risk) is the user's explicit yes to a setting that removes a
-	// protection: PROXY=none. A sandbox file cannot give it.
+	// protection: PROXY=bypass. A sandbox file cannot give it.
 	AcceptRisk bool
 }
 
@@ -340,8 +340,8 @@ func NewSandbox(p *Preset, file map[string]string, baseDir string, o Overrides) 
 	if o.RunAs != "" {
 		e.RunAs, e.UserFlag = o.RunAs, true
 	}
-	if e.Proxy == ProxyNone && !o.AcceptRisk {
-		return nil, errors.New("PROXY=none removes the proxy: the sandbox can reach any host directly. " +
+	if e.Proxy == ProxyBypass && !o.AcceptRisk {
+		return nil, errors.New("PROXY=bypass removes the proxy: the sandbox can reach any host directly. " +
 			"Add --accept-risk to start it anyway")
 	}
 	if e.WorkspaceMode != WorkspaceNone {

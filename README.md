@@ -103,7 +103,7 @@ export BURROW_PRESETS_DIR=$PWD/test/presets
 ./burrow port dev 8080                                      # publish a port after start
 ./burrow down dev                                           # keeps the home volume; --purge removes it
 ./burrow up -f examples/burrow.sandbox --proxy embedded     # the same with burrow's embedded proxy instead of iron-proxy
-./burrow up -f examples/burrow.sandbox --proxy none --accept-risk  # no proxy at all: direct network, with a warning
+./burrow up -f examples/burrow.sandbox --proxy bypass --accept-risk  # no proxy at all: direct network, with a warning
 
 # A tool on its own, on the current folder (workspace read-only):
 ./burrow exec trivy -- fs /work

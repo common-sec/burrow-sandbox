@@ -263,7 +263,7 @@ func TestRootOnlyFromTheFlag(t *testing.T) {
 	}
 }
 
-// U23: PROXY picks the engine of the one proxy image (iron by default); none needs --accept-risk;
+// U23: PROXY picks the engine of the one proxy image (iron by default); bypass needs --accept-risk;
 // anything else is refused.
 func TestProxyKind(t *testing.T) {
 	dir := t.TempDir()
@@ -297,35 +297,35 @@ func TestProxyKind(t *testing.T) {
 	if e, err = LoadEnv(write(t, "NAME=dev\nIMAGE="+pinned+"\nWORKSPACE_MODE=none\n")); err != nil || e.Proxy != ProxyIron {
 		t.Fatalf("a stored sandbox without PROXY gets the default: %+v %v", e, err)
 	}
-	// none: refused from the file and from the flag alone; only --accept-risk lets it through.
+	// bypass: refused from the file and from the flag alone; only --accept-risk lets it through.
 	for name, c := range map[string]struct {
 		file map[string]string
 		o    Overrides
 	}{
-		"file":            {with("PROXY", "none"), Overrides{}},
-		"flag":            {base, Overrides{Proxy: ProxyNone}},
-		"file, other key": {with("PROXY", "none", "STRICT", "true"), Overrides{}},
+		"file":            {with("PROXY", "bypass"), Overrides{}},
+		"flag":            {base, Overrides{Proxy: ProxyBypass}},
+		"file, other key": {with("PROXY", "bypass", "STRICT", "true"), Overrides{}},
 	} {
 		if _, err := NewSandbox(nil, c.file, dir, c.o); err == nil || !strings.Contains(err.Error(), "--accept-risk") {
-			t.Errorf("PROXY=none without --accept-risk (%s): err=%v", name, err)
+			t.Errorf("PROXY=bypass without --accept-risk (%s): err=%v", name, err)
 		}
 	}
-	e, err = NewSandbox(nil, with("PROXY", "none"), dir, Overrides{AcceptRisk: true})
-	if err != nil || e.Proxy != ProxyNone {
-		t.Fatalf("PROXY=none with --accept-risk: %+v %v", e, err)
+	e, err = NewSandbox(nil, with("PROXY", "bypass"), dir, Overrides{AcceptRisk: true})
+	if err != nil || e.Proxy != ProxyBypass {
+		t.Fatalf("PROXY=bypass with --accept-risk: %+v %v", e, err)
 	}
-	if back, err := LoadEnv(write(t, e.String())); err != nil || back.Proxy != ProxyNone {
-		t.Fatalf("a stored PROXY=none sandbox (accepted at up): %+v %v", back, err)
+	if back, err := LoadEnv(write(t, e.String())); err != nil || back.Proxy != ProxyBypass {
+		t.Fatalf("a stored PROXY=bypass sandbox (accepted at up): %+v %v", back, err)
 	}
 	for _, v := range []string{"IRON", "burrow", "iron,embedded", "envoy", "off", "-iron", "iron\nALLOW=evil.example"} {
 		if _, err := NewSandbox(nil, with("PROXY", v), dir, Overrides{AcceptRisk: true}); err == nil {
 			t.Errorf("PROXY=%q: want error", v)
 		}
 	}
-	if _, err := ParsePreset(strings.NewReader("NAME=t1\nIMAGE="+pinned+"\nPROXY=none\n"), "test"); err == nil {
+	if _, err := ParsePreset(strings.NewReader("NAME=t1\nIMAGE="+pinned+"\nPROXY=bypass\n"), "test"); err == nil {
 		t.Error("PROXY in a preset: want error (the user picks the proxy, not the preset)")
 	}
-	for k, ok := range map[ProxyKind]bool{ProxyIron: true, ProxyEmbedded: true, ProxyNone: false, "": false} {
+	for k, ok := range map[ProxyKind]bool{ProxyIron: true, ProxyEmbedded: true, ProxyBypass: false, "": false} {
 		if (CheckToolProxy(k) == nil) != ok {
 			t.Errorf("CheckToolProxy(%q): want ok=%v", k, ok)
 		}

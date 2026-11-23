@@ -560,10 +560,10 @@ func TestUpProxyEngines(t *testing.T) {
 	}
 }
 
-// U24: PROXY=none (accepted with --accept-risk in config.NewSandbox): a normal network, no proxy,
+// U24: PROXY=bypass (accepted with --accept-risk in config.NewSandbox): a normal network, no proxy,
 // no proxy variables. A tool next to it still gets its own proxy (iron).
 func TestUpWithoutProxy(t *testing.T) {
-	m, rec := upWith(t, config.ProxyNone)
+	m, rec := upWith(t, config.ProxyBypass)
 	if c := find(rec, "run", "-d", "--name", "burrow-dev-proxy"); c != nil {
 		t.Fatalf("a proxy was started: %v", c)
 	}
@@ -597,7 +597,7 @@ func TestUpWithoutProxy(t *testing.T) {
 	}
 }
 
-// U23: a tool without a sandbox picks the engine with --proxy (iron by default); none is refused.
+// U23: a tool without a sandbox picks the engine with --proxy (iron by default); bypass is refused.
 func TestExecWithoutSandboxProxyKind(t *testing.T) {
 	for _, c := range []struct {
 		kind, want config.ProxyKind
@@ -606,7 +606,7 @@ func TestExecWithoutSandboxProxyKind(t *testing.T) {
 		{"", config.ProxyIron, true},
 		{config.ProxyIron, config.ProxyIron, true},
 		{config.ProxyEmbedded, config.ProxyEmbedded, true},
-		{config.ProxyNone, "", false},
+		{config.ProxyBypass, "", false},
 		{"envoy", "", false},
 		{"iron,embedded", "", false},
 	} {

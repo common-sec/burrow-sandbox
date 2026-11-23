@@ -120,7 +120,7 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 		e.Workspace = abs
 	}
 	need := []string{e.Image}
-	if e.Proxy != config.ProxyNone {
+	if e.Proxy != config.ProxyBypass {
 		need = append(need, e.ProxyImage)
 	}
 	if err := m.requireImages(ctx, need...); err != nil {
@@ -148,7 +148,7 @@ func (m *Manager) Up(ctx context.Context, e *config.Env) error {
 func (m *Manager) start(ctx context.Context, e *config.Env) error {
 	var proxyIP string
 	var err error
-	if e.Proxy == config.ProxyNone {
+	if e.Proxy == config.ProxyBypass {
 		err = m.openNetworks(ctx, e.Name)
 	} else {
 		proxyIP, err = m.startProxy(ctx, e.Name, netName(e.Name), e.Proxy, e.ProxyImage, e.Allow)
@@ -162,7 +162,7 @@ func (m *Manager) start(ctx context.Context, e *config.Env) error {
 	return err
 }
 
-// openNetworks is the layout of a sandbox with PROXY=none (only with --accept-risk): its network
+// openNetworks is the layout of a sandbox with PROXY=bypass (only with --accept-risk): its network
 // is a normal one, with a route out and DNS, and no proxy. The egress network still exists for
 // port forwarders, so `burrow port` works the same.
 func (m *Manager) openNetworks(ctx context.Context, env string) error {
@@ -254,7 +254,7 @@ func (m *Manager) sandboxFlags(e *config.Env, proxyIP string) []string {
 	}
 	f = append(f, hardening...)
 	f = append(f, engineFlags(e.Engine)...)
-	if proxyIP != "" { // "" with PROXY=none
+	if proxyIP != "" { // "" with PROXY=bypass
 		f = append(f, proxyEnv(proxyIP)...)
 	}
 	f = append(f, envFlags(e.Env)...)
@@ -315,7 +315,7 @@ func (m *Manager) Shell(ctx context.Context, name, user string, cmd []string) er
 		// krun has no exec. Run a short-lived VM with the sandbox's exact settings: files in the
 		// workspace and home persist, processes do not.
 		var ip string
-		if e.Proxy != config.ProxyNone {
+		if e.Proxy != config.ProxyBypass {
 			if ip, err = m.ipOn(ctx, proxyName(netName(e.Name)), netName(e.Name)); err != nil {
 				return err
 			}
@@ -461,7 +461,7 @@ func (m *Manager) resolveTool(name, workspace string, p *config.Preset, o ExecOp
 			return nil, err
 		}
 		r.env, r.proxyImage = e.Name, e.ProxyImage
-		if e.Proxy != config.ProxyNone {
+		if e.Proxy != config.ProxyBypass {
 			r.proxy = e.Proxy // next to a sandbox without a proxy, a tool still gets iron
 		}
 		o.Strict = o.Strict || e.Strict
