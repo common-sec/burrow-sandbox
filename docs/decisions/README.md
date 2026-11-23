@@ -18,3 +18,4 @@ this folder holds burrow's own.
 | [0008](0008-rust-forwarder.md) | The port forwarder in Rust, standard library only (exception to org DR-0006, owner J) | proposed |
 | [0011](0011-secure-defaults-user-overrides.md) | Secure by default, tunable by the user with warnings; root allowed only from `--user` (exception, owner J) | proposed |
 | [0010](0010-dev-tools-in-containers.md) | Developer checks in pinned containers (`packaging/dev/Dockerfile`); mise removed; supersedes the mise parts of 0006 | proposed |
+| [0012](0012-confirm-weakened-settings-ci-mode.md) | Weakened settings need a named acknowledgement: prompt on a terminal, fail closed otherwise; `--ci`/`CI` only tighten | draft |
