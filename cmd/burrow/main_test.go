@@ -30,6 +30,9 @@ func TestDryRunCommands(t *testing.T) {
 	t.Chdir(t.TempDir())
 	for _, args := range [][]string{
 		{"--dry-run", "run", "alpine", "--name", "t1"},
+		{"--dry-run", "run", "alpine", "--name", "t2", "--proxy", "embedded"},
+		{"--dry-run", "run", "alpine", "--name", "t4", "--proxy", "bypass", "--accept-risk"},
+		{"--dry-run", "exec", "--proxy", "embedded", "--workspace", ".", "trivy-db"},
 		{"--dry-run", "exec", "--workspace", ".", "trivy-scan"},
 		{"--dry-run", "exec", "--strict", "--workspace", ".", "trivy"},
 		{"--dry-run", "presets", "info", "trivy"},
@@ -42,6 +45,16 @@ func TestDryRunCommands(t *testing.T) {
 	}
 	if err := run([]string{"--dry-run", "up"}); err == nil {
 		t.Error("up without a sandbox file: want error")
+	}
+	for _, args := range [][]string{
+		{"--dry-run", "run", "alpine", "--name", "t3", "--proxy", "envoy"},
+		{"--dry-run", "run", "alpine", "--name", "t5", "--proxy", "bypass"},
+		{"--dry-run", "exec", "--proxy", "bypass", "--workspace", ".", "trivy-db"},
+		{"--dry-run", "exec", "--proxy", "IRON", "--workspace", ".", "trivy-db"},
+	} {
+		if err := run(args); err == nil {
+			t.Errorf("%v: want error", args)
+		}
 	}
 	if err := run([]string{"--dry-run", "presets", "info", "missing"}); err == nil {
 		t.Error("info on a missing preset: want error")

@@ -18,8 +18,10 @@ Future work still to test: nested sandboxes (Podman in Podman), and an MCP-like 
 the agent start subagents and tools under the same restrictions ([roadmap](docs/ROADMAP.md)).
 
 > **Status: prototype (0.1).** It runs, it is tested end to end on rootless Podman, and it is meant
-> for trying the design, not for protecting anything yet. The proxy is a temporary stand-in until
-> a proxy solution is chosen. See the [roadmap](docs/ROADMAP.md).
+> for trying the design, not for protecting anything yet. The sandbox's exit is
+> [iron-proxy](https://github.com/ironsh/iron-proxy), the proxy that will carry secrets, behind
+> burrow's own proxy launcher ([decision 0013](docs/decisions/0013-iron-proxy.md)); `--proxy embedded`
+> picks burrow's small CONNECT proxy instead. See the [roadmap](docs/ROADMAP.md).
 
 ## Why
 
@@ -100,6 +102,8 @@ export BURROW_PRESETS_DIR=$PWD/test/presets
 ./burrow exec -s dev --strict trivy -- fs /work             # strict: refused, trivy wants hosts dev does not allow
 ./burrow port dev 8080                                      # publish a port after start
 ./burrow down dev                                           # keeps the home volume; --purge removes it
+./burrow up -f examples/burrow.sandbox --proxy embedded     # the same with burrow's embedded proxy instead of iron-proxy
+./burrow up -f examples/burrow.sandbox --proxy bypass --accept-risk  # no proxy at all: direct network, with a warning
 
 # A tool on its own, on the current folder (workspace read-only):
 ./burrow exec trivy -- fs /work
@@ -123,9 +127,9 @@ Windows: [docs/WINDOWS.md](docs/WINDOWS.md).
 | Path | What |
 |---|---|
 | `cmd/burrow` | the CLI (sandbox manager) |
-| `cmd/burrow-proxy` | egress proxy, a **temporary stand-in** until a proxy solution is chosen (not to be extended except for a test or an investigation) |
+| `cmd/burrow-proxy` | the sandbox's only exit, one set of flags for two engines: `iron` (default; renders iron-proxy's configuration and execs it) and `embedded` (burrow's small CONNECT proxy, `internal/proxy`, not to be extended except for a test or an investigation). Image: `packaging/proxy` |
 | `crates/burrow-forward` | port forwarder for running sandboxes (Rust, standard library only) |
-| `internal/` | shared packages: `config`, `podman`, `sandbox`, `proxy` |
+| `internal/` | shared packages: `config`, `podman`, `sandbox`, `proxy`, `ironproxy` |
 | `packaging/<product>/` | how each product is packaged (container images now; releases later) |
 | `test/presets`, `test/images` | presets for tests and examples, and their images (one Dockerfile each) |
 | `examples/` | an example sandbox file |

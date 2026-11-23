@@ -46,7 +46,7 @@ scan-deps: ## Trivy: dependencies, misconfigurations, secrets in the repository
 scan-images: images ## Trivy: vulnerabilities and secrets in the images we build
 	sh scripts/scan.sh images
 
-images: ## build the proxy and forwarder images (localhost/burrow-*:dev)
+images: ## build the proxy (both engines) and forwarder images (localhost/burrow-*:dev)
 	sh scripts/images.sh proxy forward
 
 test-images: ## build the small test images the e2e needs (localhost/burrow-test-*:dev, test/images)

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the images burrow starts:  sh scripts/images.sh [proxy] [forward] [test] [sandboxes [NAME...]]
-#   proxy, forward  localhost/burrow-proxy:dev, localhost/burrow-forward:dev (packaging/<name>)
+#   proxy, forward  localhost/burrow-proxy:dev (both engines: iron, embedded), localhost/burrow-forward:dev (packaging/<name>)
 #   test            the small test images the e2e needs (alpine, curl, trivy)
 #   sandboxes       the sandbox images of the test presets (all, or the NAMEs given): ubuntu,
 #                   kali and the agents (claude, codex, opencode, pi, hermes); 1 to 2 GB each
