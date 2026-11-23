@@ -4,7 +4,7 @@
 # dependency by version and SHA-256 in requirements.txt (generated from requirements.in with
 # `uv pip compile --generate-hashes --exclude-newer <7 days ago>`; Dependabot: pip). Licence: MIT.
 # The full Python image already has git, curl and CA certificates (no apt).
-FROM docker.io/library/python:3.13.18-bookworm@sha256:cc55e4ded9c95f6ce2133b3d096db43f214d280c2a8af65d83e246c8fa7d168c
+FROM docker.io/library/python:3.15.2-bookworm@sha256:6f060cab421d9509c6c6a6a7762c651baf03c3f1d0145befe16b688762b7fe81
 COPY requirements.txt /opt/agent/requirements.txt
 # --require-hashes: pip refuses anything not listed with its hash.
 RUN python -m venv /opt/agent/venv \
