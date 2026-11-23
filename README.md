@@ -68,17 +68,18 @@ Details and the threat model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Try it
 
 You need only Podman 4.9 or newer (on Windows and macOS: a Podman machine). No Go, mise or make
-on your machine: everything is built in pinned containers, from the repository as the build
-context, so nothing goes through the machine's shared folder (which has no file locking).
+on your machine: everything is built in pinned containers. burrow itself is built the way burrow
+runs a tool: the build script in the pinned Go image, with this folder mounted and no
+capabilities.
 
 burrow runs **presets**, not images: a preset is a pinned image plus the settings it is safe to
 run with. Presets come from your presets folder (`burrow presets` prints it). Published, prebuilt
 presets with an index are planned; until then, the test presets in `test/presets` show the format.
 
 ```sh
-# burrow binaries for every platform, built in the pinned Go image, copied to dist/
-podman build -f packaging/burrow/Dockerfile -t localhost/burrow-dist:dev .
-c=$(podman create localhost/burrow-dist:dev /none) && podman cp "$c:/dist" ./dist && podman rm "$c"
+# burrow binaries for every platform into dist/: scripts/build.sh in the pinned Go image, this
+# folder mounted (the same as `make build`, scripts/build-in-container.sh)
+sh scripts/build-in-container.sh
 cp dist/burrow-linux-amd64 ./burrow       # or burrow-darwin-arm64, burrow-windows-amd64.exe ...
 
 # the images burrow starts: proxy, port forwarder, and the test presets' images

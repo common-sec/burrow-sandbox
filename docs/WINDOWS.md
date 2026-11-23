@@ -19,7 +19,7 @@
 > - **Hyper-V and WSL Podman machines cannot build Go from a shared folder.** The share has no
 >   file locking, and Go locks `go.mod` (`go: RLock /work/go.mod: function not implemented`).
 >   To fix or work around (see "Known issues"); building burrow itself works with
->   `sh scripts/build-in-container.sh`, and the developer checks with
+>   `BUILD_MODE=context sh scripts/build-in-container.sh`, and the developer checks with
 >   `podman build --target vet|lint|test|vuln -f packaging/dev/Dockerfile .`; neither uses the share.
 > - **Podman inside a WSL distro** (not a machine) is where the work so far has been done, with the
 >   repository under `/mnt/c/...`. Ubuntu 22.04's Podman 3.4.4 is too old: its CNI network
@@ -67,10 +67,15 @@ podman machine start burrow-hv
 podman system connection default burrow-hv
 
 # In a clone of this repository (inside C:\burrow-work)
-# Only Podman: burrow and its images are built in pinned containers (no Go, mise or make)
-podman build -f packaging/burrow/Dockerfile -t localhost/burrow-dist:dev .
-$c = podman create localhost/burrow-dist:dev /none
-podman cp "${c}:/dist" .\dist; podman rm $c
+# Only Podman: burrow and its images are built in pinned containers (no Go, mise or make).
+# burrow: the build script in the pinned Go image, this folder mounted (as burrow runs a tool)
+podman run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --http-proxy=false `
+  --tmpfs /tmp:rw,exec,size=2g -e HOME=/tmp -e GOCACHE=/tmp/go-build -e GOMODCACHE=/tmp/gomod `
+  -e CGO_ENABLED=0 -e "GOFLAGS=-trimpath -mod=readonly" -e GOTOOLCHAIN=local `
+  -v "${PWD}:/src" -w /src docker.io/library/golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 sh scripts/build.sh
+# On the Hyper-V share this fails with "RLock go.mod" (no file locking): build from the context:
+#   podman build -f packaging/burrow/Dockerfile -t localhost/burrow-dist:dev .
+#   $c = podman create localhost/burrow-dist:dev /none; podman cp "${c}:/dist" .\dist; podman rm $c
 copy dist\burrow-windows-amd64.exe burrow.exe
 podman build -f packaging/proxy/Dockerfile -t localhost/burrow-proxy:dev .
 podman build -f packaging/forward/Dockerfile -t localhost/burrow-forward:dev .
@@ -109,7 +114,7 @@ support `flock` locks, and Go locks `go.mod` before reading it, with no setting 
 is in the hypervisor's file sharing, not in burrow or the container, so a flag cannot switch it
 on. *Which share supports which lock calls is unverified; to record per backend (step 2 above).*
 Until burrow can keep the workspace in a volume inside the machine (roadmap 0.2):
-- to build burrow itself: `sh scripts/build-in-container.sh` (DEVELOPMENT.md), which never uses the share;
+- to build burrow itself: `BUILD_MODE=context sh scripts/build-in-container.sh` (DEVELOPMENT.md), which never uses the share;
 - for your own projects: clone into the sandbox's home (`burrow shell dev -- git clone ... ~/src`)
   and build there, or build on the host.
 

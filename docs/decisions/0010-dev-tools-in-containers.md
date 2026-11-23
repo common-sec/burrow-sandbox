@@ -34,7 +34,9 @@ pinned containers.
   is its own step (checked by `go.sum` and `go mod verify`), the checks run with no network.
 - `make vuln`: the `vuln` stage, with network (govulncheck reads vuln.go.dev). A build argument
   with the date makes a cached result at most one day old.
-- `make build`: the existing `packaging/burrow/Dockerfile` (`scripts/build-in-container.sh`).
+- `make build`: `scripts/build.sh` in the pinned Go image with the repository mounted, the way
+  burrow runs a tool (`scripts/build-in-container.sh`); `BUILD_MODE=context` builds from
+  `packaging/burrow/Dockerfile` instead, for shares without file locking.
 - `make fmt`: `podman run` of the pinned golangci-lint image with the repository mounted
   read-write, no network, no capabilities, read-only root, as the developer's own user. The only
   step that writes the working tree.

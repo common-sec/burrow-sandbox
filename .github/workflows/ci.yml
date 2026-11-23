@@ -57,3 +57,5 @@ jobs:
       - run: podman --version
       # Builds burrow in its container first (make build), then runs the checks with that binary.
       - run: make e2e
+      - name: Build from the build context too (for Podman machine shares without file locking)
+        run: BUILD_MODE=context sh scripts/build-in-container.sh

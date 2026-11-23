@@ -31,20 +31,24 @@ On Windows, run `make` from WSL or Git Bash.
 
 ## Building
 
-`make build` (`sh scripts/build-in-container.sh`) builds the binaries for every
-platform inside a pinned Go image (`packaging/burrow/Dockerfile`) and copies them to `dist/`.
-The source goes in as the build context, which Podman copies into the machine, so this also works
-where the shared folder of a Podman machine has no file locking (see WINDOWS.md, "Known issues").
-Without `sh` (PowerShell):
+`make build` (`sh scripts/build-in-container.sh`) builds the binaries for every platform the
+way burrow runs a tool: `scripts/build.sh` in the pinned Go image (the `GO_IMAGE` of
+`packaging/burrow/Dockerfile`), with the current folder mounted at `/src`, no capabilities, no new
+privileges, a read-only root and the Go caches in `/tmp`. The binaries land in `dist/`, owned by
+you. Without `sh` (PowerShell), the same command:
 
 ```powershell
-podman build -f packaging/burrow/Dockerfile -t localhost/burrow-dist:dev .
-$c = podman create localhost/burrow-dist:dev /none
-podman cp "${c}:/dist" ./dist; podman rm $c
+podman run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --http-proxy=false `
+  --tmpfs /tmp:rw,exec,size=2g -e HOME=/tmp -e GOCACHE=/tmp/go-build -e GOMODCACHE=/tmp/gomod `
+  -e CGO_ENABLED=0 -e "GOFLAGS=-trimpath -mod=readonly" -e GOTOOLCHAIN=local `
+  -v "${PWD}:/src" -w /src docker.io/library/golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 sh scripts/build.sh
 ```
 
-The build context has no `.git`, so Go embeds no `vcs.*` stamp (`go version -m`); the version
-string is passed in from `git describe`.
+**On a Podman machine's shared folder** (Hyper-V 9p, macOS virtiofs) Go fails with `RLock
+go.mod: function not implemented` (no file locking there). Then use
+`BUILD_MODE=context sh scripts/build-in-container.sh`, which sends the source as the build context
+instead of mounting it (WINDOWS.md, "Known issues"). The build context has no `.git`, so that
+build embeds no `vcs.*` stamp; the version string is passed in from `git describe`.
 
 ## Make targets (the same locally and in CI)
 
