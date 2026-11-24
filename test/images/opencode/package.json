@@ -3,6 +3,6 @@
   "private": true,
   "description": "Pinned opencode-ai for the opencode sandbox preset; exact version, lockfile with integrity hashes.",
   "dependencies": {
-    "opencode-ai": "1.19.5"
+    "opencode-ai": "1.19.6"
   }
 }
